@@ -1,0 +1,37 @@
+{
+  "name": "agy-ignore",
+  "version": "1.0.0",
+  "description": "Audit-first three-layer context noise reduction and ignore-rule customization skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zou172866/agy-ignore.git"
+  },
+  "homepage": "https://github.com/zou172866/agy-ignore#readme",
+  "bugs": {
+    "url": "https://github.com/zou172866/agy-ignore/issues"
+  },
+  "keywords": [
+    "antigravity",
+    "google-antigravity",
+    "agent-skills",
+    "antigravityignore",
+    "geminiignore",
+    "aiexclude",
+    "gitignore",
+    "context-optimization",
+    "security",
+    "gemini-cli"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "audit": "node skills/agy-ignore/scripts/audit_workspace.mjs",
+    "install:local": "node scripts/install-local.mjs",
+    "check:local": "node scripts/install-local.mjs --check",
+    "uninstall:local": "node scripts/install-local.mjs --uninstall"
+  }
+}

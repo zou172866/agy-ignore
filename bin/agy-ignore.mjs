@@ -4,7 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { auditWorkspace, renderMarkdown } from '../skills/agy-ignore/scripts/audit_workspace.mjs';
+import { auditWorkspace, renderMarkdown, verifyIgnoreFile, renderVerifyMarkdown } from '../skills/agy-ignore/scripts/audit_workspace.mjs';
 import { syncIgnores } from '../skills/agy-ignore/scripts/sync_ignores.mjs';
 
 const PKG_PATH = new URL('../package.json', import.meta.url);
@@ -33,14 +33,17 @@ export function getHelpText() {
     '',
     'Usage:',
     '  agy-ignore [dir] [options]',
-    '  agy-ignore check [dir]        Read-only audit report (default in non-TTY / LLM)',
-    '  agy-ignore apply [dir]        Create or incrementally merge .antigravityignore',
-    '  agy-ignore sync  [dir]        Apply .antigravityignore and sync .geminiignore,.aiexclude',
+    '  agy-ignore check  [dir]       Read-only audit report (default in non-TTY / LLM)',
+    '  agy-ignore apply  [dir]       Create or incrementally merge .antigravityignore',
+    '  agy-ignore sync   [dir]       Apply .antigravityignore and sync .geminiignore,.aiexclude',
+    '  agy-ignore verify [dir]       Verify actual .antigravityignore savings and tracked-code safety',
     '',
     'Options:',
     '  --check                       Read-only audit report + Agent Guardrails (no file edits)',
     '  --apply                       Create or incrementally merge .antigravityignore',
     '  --sync                        Also sync .antigravityignore -> .geminiignore,.aiexclude',
+    '  --verify                      Verify written ignore file in an isolated Git check',
+    '  --ignore-file <file>          Ignore file name for --verify (default: .antigravityignore)',
     '  --targets <list>              Comma-separated sync targets (default: .geminiignore,.aiexclude)',
     '  --fix-gitignore               Append missing high-risk leak rules to repo .gitignore files',
     '  --dry-run                     Preview file changes without writing to disk',
@@ -62,6 +65,8 @@ export function parseCliArgs(argv = []) {
     check: false,
     apply: false,
     sync: false,
+    verify: false,
+    ignoreFile: '.antigravityignore',
     fixGitignore: false,
     dryRun: false,
     force: false,
@@ -87,6 +92,8 @@ export function parseCliArgs(argv = []) {
     else if (a === '--check') opts.check = true;
     else if (a === '--apply') opts.apply = true;
     else if (a === '--sync') opts.sync = true;
+    else if (a === '--verify') opts.verify = true;
+    else if (a === '--ignore-file') opts.ignoreFile = readVal(argv, i++, '--ignore-file');
     else if (a === '--fix-gitignore') opts.fixGitignore = true;
     else if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--force') { opts.force = true; opts.backup = false; }
@@ -107,11 +114,12 @@ export function parseCliArgs(argv = []) {
     } else if (a === '--top') opts.top = parsePosInt(readVal(argv, i++, '--top'), '--top', 1, 100);
     else if (a === '--max-depth') opts.maxDepth = parsePosInt(readVal(argv, i++, '--max-depth'), '--max-depth', 1, 32);
     else if (a.startsWith('-')) throw new Error(`Unknown option: ${a}`);
-    else if (!subDone && !dirDone && (a === 'check' || a === 'audit' || a === 'apply' || a === 'sync')) {
+    else if (!subDone && !dirDone && (a === 'check' || a === 'audit' || a === 'apply' || a === 'sync' || a === 'verify')) {
       subDone = true;
       if (a === 'check' || a === 'audit') opts.check = true;
       else if (a === 'apply') opts.apply = true;
       else if (a === 'sync') { opts.apply = true; opts.sync = true; }
+      else if (a === 'verify') opts.verify = true;
     } else if (!dirDone) {
       opts.targetDir = a;
       dirDone = true;
@@ -322,11 +330,11 @@ export function renderAgentOutput(report) {
   const guardrails = [
     '',
     '## Agent Guardrails',
-    '- Apply or incrementally merge `.antigravityignore` via `agy-ignore "<dir>" --apply` (preserves user rules; never emits global `*.png`, `*.svg`, `*.json`, `*.md`, `bin/`, or `env/`).',
-    '- Keep active code/deliverables readable; place borderline folders (`04-cleaned/`, datasets) under `# ` optional toggles.',
-    '- Confirm with the user before running `--fix-gitignore` or `git rm --cached` on tracked files.',
-    '- Never auto-edit `~/.gemini/config/config.json`; present `permissions.deny` for manual setup in **Settings → Security / Permissions (Strict Mode)**.',
-    '- Only pass `--sync` (`.geminiignore`, `.aiexclude`) when the user requests multi-tool compatibility.',
+    '- Apply or incrementally merge `.antigravityignore` via `agy-ignore "<dir>" --apply`, then verify actual rules via `agy-ignore "<dir>" --verify`.',
+    '- Keep active code/deliverables readable (never ignore mixed dirs like `data/` or `models/` wholesale when they contain code); put borderline folders (`04-cleaned/`, datasets) under `# ` toggles.',
+    '- Confirm with the user before running `--fix-gitignore` or `git rm --cached` on tracked files (remind key rotation if secrets were pushed).',
+    '- Never auto-edit `~/.gemini/config/config.json`; present `permissions.deny` as an optional manual copy-paste for **Settings → Security / Permissions (Strict Mode)**.',
+    '- Report in plain language: reassure zero files were deleted, lead with real savings, rank next steps clearly, and omit `--sync` (`.geminiignore`/`.aiexclude`) unless requested or already present.',
     '',
   ].join('\n');
   return `${renderMarkdown(report).trimEnd()}\n${guardrails}`;
@@ -376,7 +384,8 @@ function printInteractiveSummary(report, preview) {
       console.log(`   - [${l.repo}] ${l.isDir ? `${l.path}/` : l.path} (${l.action}${trk})`);
     }
   } else {
-    console.log('\n  [.gitignore 巡检] 0 高风险漏配');
+    const hCount = (report.recommendations.gitignoreHardening || []).reduce((n, p) => n + p.rulesToAdd.length, 0);
+    console.log(`\n  [.gitignore 巡检] 0 真实漏配${hCount ? `（另有 ${hCount} 条可选预防加固建议）` : ''}`);
   }
   console.log(line);
 }
@@ -447,6 +456,13 @@ export async function runCli(argv = process.argv.slice(2)) {
   const opts = parseCliArgs(argv);
   if (opts.help) { console.log(getHelpText()); return 0; }
   if (opts.version) { console.log(VERSION); return 0; }
+
+  if (opts.verify && !opts.apply && !opts.sync && !opts.fixGitignore) {
+    const vRes = verifyIgnoreFile(opts.targetDir, { ignoreFile: opts.ignoreFile });
+    console.log(opts.format === 'json' ? JSON.stringify(vRes, null, 2) : renderVerifyMarkdown(vRes));
+    await pauseIfNeeded(opts.pause);
+    return vRes.ok ? 0 : 1;
+  }
 
   const report = auditWorkspace(opts.targetDir, { top: opts.top, maxDepth: opts.maxDepth });
   const root = report.overview.root;

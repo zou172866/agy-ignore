@@ -11,6 +11,8 @@ import {
   classifyDirectory,
   isSensitiveFile,
   renderMarkdown,
+  verifyIgnoreFile,
+  renderVerifyMarkdown,
   parseArgs as parseAuditArgs,
 } from '../skills/agy-ignore/scripts/audit_workspace.mjs';
 import {
@@ -523,10 +525,10 @@ test('skills/agy-ignore/ meets slimming budgets (4-file layout, concise SKILL.md
   assert.ok(guardrails.bytes <= 2700, `guardrails.md should be <= 2700 bytes, got ${guardrails.bytes}`);
 
   // 3. Script slimming budgets (readable, non-minified ESM)
-  // Note: audit_workspace.mjs enforces <= 580 lines (per plan) and <= 28672 bytes (~22.9 KB non-whitespace tokens; <= 24576 B would require minification/splitting/feature cuts).
+  // Note: v1.2.0 adds isolated --verify, preventive .gitignore hardening, AI weights & runtime state detection.
   const auditScript = measure('scripts/audit_workspace.mjs');
-  assert.ok(auditScript.lines <= 580, `audit_workspace.mjs should be <= 580 lines, got ${auditScript.lines}`);
-  assert.ok(auditScript.bytes <= 28672, `audit_workspace.mjs should be <= 28672 bytes, got ${auditScript.bytes}`);
+  assert.ok(auditScript.lines <= 760, `audit_workspace.mjs should be <= 760 lines, got ${auditScript.lines}`);
+  assert.ok(auditScript.bytes <= 38912, `audit_workspace.mjs should be <= 38912 bytes, got ${auditScript.bytes}`);
 
   const syncScript = measure('scripts/sync_ignores.mjs');
   assert.ok(syncScript.lines <= 155, `sync_ignores.mjs should be <= 155 lines, got ${syncScript.lines}`);
@@ -867,5 +869,81 @@ test('sync_ignores.mjs and install-local.mjs enforce safety guards, reject bad C
     assert.equal(checkSkill({ dest: destDir }).inSync, true);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('v1.2.0 detects AI model weights, runtime state dirs, SQLite WAL, DPAPI keys, preventive .gitignore hardening, protects mixed code dirs, and runs isolated --verify', () => {
+  const ws = makeTempDir('agy-ignore-v12-');
+  try {
+    runGit(ws, ['init']);
+    // .gitignore ignores .env, /models/, /state/, secrets/ — zero active leaks, but misses .env.*, *.pem, *.key, *.dpapi
+    writeFileDeep(ws, '.gitignore', '.env\n/models/\n/state/\nsecrets/\n');
+    writeFileDeep(ws, '.env', 'API_KEY=dummy\n');
+    writeFileDeep(ws, '.env.example', 'API_KEY=\n');
+    writeFileDeep(ws, 'app/main.py', 'print("ok")\n');
+    // Mixed data/ dir containing active scripts MUST NOT be classified as noise
+    writeFileDeep(ws, 'data/start_all.ps1', 'Write-Host "ok"\n');
+    // ORM models/ & frontend state/ containing code MUST NOT be classified as noise
+    writeFileDeep(ws, 'src/models/user.py', 'class User: pass\n');
+    writeFileDeep(ws, 'src/state/store.ts', 'export const token = "";\n');
+    // Real non-code AI weights dir (>= 1 MB) + runtime state dir + Windows DPAPI key
+    writeFileDeep(ws, 'models/sense.onnx', Buffer.alloc(1200 * 1024, 0x01));
+    writeFileDeep(ws, 'state/brain.sqlite3', Buffer.alloc(4096, 0x02));
+    writeFileDeep(ws, 'state/.console_token', 'tok\n');
+    writeFileDeep(ws, 'secrets/auth.dpapi', 'dpapi-bytes\n');
+
+    runGit(ws, ['add', '.gitignore', '.env.example', 'app/main.py', 'data/start_all.ps1', 'src/models/user.py', 'src/state/store.ts']);
+
+    const rep = auditWorkspace(ws, { top: 15, maxDepth: 6 });
+
+    // 1. Model weights & runtime state detected; code-bearing dirs protected
+    assert.equal(rep.topBySize.find((d) => d.path === 'models')?.category, 'model_media_assets');
+    assert.equal(rep.topBySize.find((d) => d.path === 'state')?.category, 'corpus_or_intermediate');
+    assert.equal(rep.topBySize.find((d) => d.path === 'state')?.sensitive, true);
+    assert.equal(rep.topBySize.find((d) => d.path === 'data')?.category, null);
+    assert.equal(classifyDirectory('models', { files: 3, bytes: 5 * 1048576, codeFiles: 1, weightFiles: 2 }), null);
+    assert.equal(classifyDirectory('state', { files: 3, bytes: 2048, codeFiles: 2, dbFiles: 1 }), null);
+
+    // 2. Draft anchors /models/ & /state/ (protecting src/models & src/state), plus *.onnx, SQLite WAL/SHM, and dynamic *.dpapi
+    const draftLines = rep.recommendations.antigravityIgnoreDraft.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    assert.ok(draftLines.includes('/models/'));
+    assert.ok(draftLines.includes('/state/'));
+    assert.ok(draftLines.includes('*.onnx'));
+    assert.ok(draftLines.includes('*.sqlite3-wal'));
+    assert.ok(draftLines.includes('*.sqlite3-shm'));
+    assert.ok(draftLines.includes('*.dpapi'));
+    assert.ok(rep.recommendations.permissionsDeny.permissions.deny.includes('Read(**/*.dpapi)'));
+    assert.ok(rep.recommendations.permissionsDeny.permissions.deny.includes('Read(state/**)'));
+
+    // 3. Zero active leaks, but preventive hardening catches missing .env.* / *.pem / *.key / *.dpapi
+    assert.equal(rep.gitLeaks.length, 0);
+    assert.equal(rep.recommendations.gitignoreHardening.length, 1);
+    const hRules = rep.recommendations.gitignoreHardening[0].rulesToAdd;
+    assert.ok(hRules.includes('.env.*') && hRules.includes('!.env.example') && hRules.includes('*.pem') && hRules.includes('*.key') && hRules.includes('*.dpapi'));
+
+    // 4. Isolated --verify PASS on clean .antigravityignore
+    writeFileDeep(ws, '.antigravityignore', rep.recommendations.antigravityIgnoreDraft);
+    const vPass = verifyIgnoreFile(ws);
+    assert.equal(vPass.ok, true);
+    assert.deepEqual(vPass.readableTemplates, ['.env.example']);
+    assert.deepEqual(vPass.trackedNonLockIgnored, []);
+    assert.ok(vPass.ignoredFiles >= 4);
+    assert.match(renderVerifyMarkdown(vPass), /Status:\*\* PASS/);
+
+    const cliVerifyPass = runNode(AUDIT_SCRIPT, [ws, '--verify', '--json']);
+    assert.equal(cliVerifyPass.status, 0, cliVerifyPass.stderr);
+    assert.equal(JSON.parse(cliVerifyPass.stdout).ok, true);
+
+    // 5. Isolated --verify WARN when tracked active script (data/) is accidentally ignored
+    fs.appendFileSync(path.join(ws, '.antigravityignore'), '\ndata/\n');
+    const vWarn = verifyIgnoreFile(ws);
+    assert.equal(vWarn.ok, false);
+    assert.ok(vWarn.trackedNonLockIgnored.includes('data/start_all.ps1'));
+    const cliVerifyWarn = runNode(AUDIT_SCRIPT, [ws, '--verify']);
+    assert.equal(cliVerifyWarn.status, 1);
+    assert.match(cliVerifyWarn.stdout, /Status:\*\* WARN/);
+    assert.match(cliVerifyWarn.stdout, /data\/start_all\.ps1/);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
   }
 });

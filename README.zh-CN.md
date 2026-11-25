@@ -44,14 +44,16 @@
 node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --format md --top 12
 # 输出结构化 JSON：
 node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --json
+# 隔离验真实际落盘的 .antigravityignore（真实过滤占比 + 零源码误伤）：
+node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --verify
 ```
 
 `audit_workspace.mjs` 在安全遍历（不跟随目录软链接、跳过 `.git/` 内部对象、优雅跳过权限受限目录）后输出：
 - **工作区总览**：总文件数、总体积（MB）、识别的技术栈、现有 ignore 文件清单（`.gitignore` / `.antigravityignore` / `.geminiignore` / `.aiexclude` / `.cursorignore`）。
-- **体积 Top N & 文件数 Top N 目录榜（1～2 级聚合）**：自动标注噪音类型（`browser_profile`、`dependencies`、`build_cache`、`archives_releases`、`corpus_or_intermediate`、`lockfiles`）。
-- **敏感文件与浏览器配置扫描**：检测 `.env` / `.env.*`（自动放行 `.env.example` / `.env.sample` / `.env.template`）、`*.pem`、`*.key`、`secrets/`、浏览器 profile，以及与 `config.example.json` 成对出现或已被 gitignore 的本地 `config.json`。
-- **多仓库 `.gitignore` 漏配巡检（深度 <= 2）**：对每个 Git 仓库调用 `git check-ignore --no-index` 与 `git ls-files`，标出未忽略项及是否已被 Git 追踪。
-- **可直接落地的产出**：去重后的过滤收益估算、5 段分组 `.antigravityignore` 草稿（灰区成品默认写成 `# ` 注释开关）、分仓库 `.gitignore` 补丁清单、以及可直接复制的 `permissions.deny` JSON 片段（绝不擅自修改用户的全局 `config.json`）。
+- **体积 Top N & 文件数 Top N 目录榜（1～2 级聚合）**：自动标注噪音类型（`browser_profile`、`dependencies`、`build_cache`、`archives_releases`、`corpus_or_intermediate`、`model_media_assets`、`lockfiles`），并对含活跃代码的混合目录（如 `data/`、ORM `models/`、前端 `state/`）做防误伤保护。
+- **敏感文件、权重与配置扫描**：检测 `.env` / `.env.*`（自动放行 `.env.example` / `.env.sample` / `.env.template`）、`*.pem`、`*.key`、`*.dpapi`（按实检动态追加）、`secrets/`、浏览器 profile、SQLite WAL/SHM 伴生文件、AI 模型权重（`*.ckpt`/`*.pth`/`*.onnx`/`*.safetensors`/`*.gguf`）与本地 `config.json`。
+- **多仓库 `.gitignore` 漏配与预防加固巡检（深度 <= 2）**：对每个 Git 仓库调用 `git check-ignore --no-index` 与 `git ls-files`，明确区分**真实漏配（立即修复）**与**预防性加固（0 漏配时的可选 `.env.*`/`*.pem`/`*.key` 建议）**。
+- **通俗汇报与 `--verify` 隔离验真**：输出 5 段 `.antigravityignore` 草稿、隔离实测真实过滤率与模板/追踪源码零误伤校验，以及面向普通用户的分级推荐（先定心丸、不甩术语菜单）。
 
 ### 2. 可选多端同步（Gemini CLI / Gemini Code Assist）
 
@@ -84,6 +86,7 @@ npm link
 agy-ignore                  # 终端里进入单键交互菜单；大模型/脚本调用自动输出只读报告 + 红线提示
 agy-ignore --check          # 只读体检，不改任何文件
 agy-ignore --apply          # 创建或无损增量合并 .antigravityignore（保留已有用户规则）
+agy-ignore --verify         # 隔离验真已落盘的 .antigravityignore（真实减负 + 防源码误伤）
 agy-ignore --sync           # 写入 .antigravityignore 并备份同步到 .geminiignore 与 .aiexclude
 agy-ignore --fix-gitignore  # 补齐未忽略的 .gitignore 高风险漏配（绝不自动取消追踪已提交文件）
 ```

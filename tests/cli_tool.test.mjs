@@ -210,3 +210,25 @@ test('mergeAntigravityIgnore handles edge cases and windows/agy-ignore.bat works
     }
   }
 });
+
+test('agy-ignore verify subcommand and --verify flag validate written .antigravityignore', () => {
+  const ws = makeTempDir('agy-ignore-cli-verify-');
+  try {
+    runGit(ws, ['init']);
+    writeFileDeep(ws, 'package.json', '{"name":"demo"}\n');
+    writeFileDeep(ws, '.env', 'SECRET=1\n');
+    writeFileDeep(ws, '.env.example', 'SECRET=\n');
+    writeFileDeep(ws, 'src/index.js', 'export const ok = true;\n');
+    runGit(ws, ['add', 'package.json', '.env.example', 'src/index.js']);
+
+    assert.equal(runCliProc(['apply', ws]).status, 0);
+    const rVerify = runCliProc(['verify', ws, '--json']);
+    assert.equal(rVerify.status, 0, rVerify.stderr);
+    const v = JSON.parse(rVerify.stdout);
+    assert.equal(v.ok, true);
+    assert.deepEqual(v.readableTemplates, ['.env.example']);
+    assert.deepEqual(v.trackedNonLockIgnored, []);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});

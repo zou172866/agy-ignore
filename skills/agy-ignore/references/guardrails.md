@@ -6,26 +6,30 @@ Ignore files are **soft context filters**, never a security boundary.
 
 | Layer | Mechanism | Security? | Scope & Goal |
 | --- | --- | --- | --- |
-| **L1: Hard Wall** | `permissions.deny` + Strict Mode (`~/.gemini/config/config.json` / Settings) | **Yes** | Blocks AI reads of `.env*`, keys, `secrets/`, browser profiles, local `config.json` |
-| **L2: Repo Baseline** | `.gitignore` (root + nested Git repos) | Commit guard | Blocks staging secrets, profiles, deps, heavy exports |
-| **L3: Context Filter** | `.antigravityignore` (sync: `.geminiignore`, `.aiexclude`) | **No** | Cuts index/search bloat from caches, lockfiles, archives, intermediate corpora |
+| **L1: Hard Wall** | `permissions.deny` + Strict Mode (`~/.gemini/config/config.json`) | **Yes** | Blocks AI reads of `.env*`, keys, `secrets/`, browser profiles, local `config.json`, sensitive state dirs |
+| **L2: Repo Baseline** | `.gitignore` (root + nested repos) | Commit guard | Blocks staging secrets, profiles, deps, weights, exports |
+| **L3: Context Filter** | `.antigravityignore` (sync: `.geminiignore`, `.aiexclude`) | **No** | Cuts bloat from caches, lockfiles, weights, archives, runtime state, intermediate corpora |
 
 ## 2. Operational Caveats
 
-- **Layer 1 & Strict Mode:** Never auto-edit `~/.gemini/config/config.json`. Direct `@file` reads and shell commands bypass L3 soft ignores—pair `permissions.deny` (`Read(.env*)`, `Read(**/*.pem)`, `Read(**/.edge-profile/**)`) with **Strict Mode**; keep `.env.example` readable.
-- **Independent nested repos:** Root `.gitignore` does **not** protect nested `sub-repo/.git`; patch each repo separately.
-- **Tracked files ignore `.gitignore`:** Rules do not untrack committed paths. After confirmation, run `git rm --cached -- "<file>"` or `git rm -r --cached -- "<dir>/"`.
-- **Rotate pushed secrets:** Untracking does not scrub Git history—rotate pushed secrets immediately.
-- **`.aiexclude` negation caveat:** `.antigravityignore`/`.geminiignore` support `!pattern` (`!.env.example`), while some `.aiexclude` parsers ignore/restrict negations—verify synced `.aiexclude`.
+- **L1 & Strict Mode:** Never auto-edit `~/.gemini/config/config.json`. Direct `@file` reads & shell bypass L3—pair `permissions.deny` with **Strict Mode**; keep `.env.example` readable.
+- **Nested repos:** Root `.gitignore` does **not** protect nested `sub-repo/.git`; patch separately.
+- **Tracked files:** `.gitignore` will not untrack them—confirm before `git rm --cached`; rotate pushed secrets immediately.
+- **Leaks vs hardening:** Flag real unignored/tracked paths as **fix now**; label missing `.env.*`/`*.pem`/`*.key` rules (0 active leaks) as **optional quick win**.
+- **`.aiexclude` negation:** Some parsers restrict `!pattern` (`!.env.example`)—verify synced `.aiexclude`.
 
 ## 3. Anti-Patterns (Never Emit Blindly)
 
 | Anti-Pattern | Failure Mode | Safe Alternative |
 | --- | --- | --- |
-| `*.png`, `*.svg`, `*.jpg` | Hides screenshots, diagrams, icons | Scope to bulky dirs (`assets/raw-photos/`) |
-| `*.json` | Hides `package.json`, `tsconfig.json`, schemas | Scope to private/bulky files (`app/config.json`, `*_plan.json`) |
-| `*.md` | Hides `README.md`, `SKILL.md`, specs | Ignore raw/chunk dirs (`txt/01-raw/`, `txt/03-chunks/`) |
-| Global `bin/` or `env/` | Hides CLI scripts or `env/` code | Scope per project (`dotnet-app/bin/`, `py-svc/env/`) |
-| `.env.*` w/o `!.env.example` | Hides env templates | Pair with `!.env.example`, `!.env.sample`, `!.env.template` |
-| Ignoring final outputs | Blinds AI to deliverables (`04-cleaned/`) | Place under `# ` commented toggles |
-| Using `.*ignore` for secrets | Bypassed by direct reads/shell | Mirror in L1 (`permissions.deny`) & L2 (`.gitignore`) |
+| `*.png`, `*.svg`, `*.jpg` | Hides diagrams, icons | Scope to bulky dirs (`assets/raw-photos/`) |
+| `*.json` | Hides `package.json`, schemas | Scope to private files (`app/config.json`) |
+| `*.md` | Hides `README.md`, specs | Ignore raw/chunk dirs (`txt/01-raw/`) |
+| Global `bin/` or `env/` | Hides CLI scripts or `env/` code | Scope per project (`dotnet-app/bin/`) |
+| Whole mixed dir (`data/`, `models/`) | Hides scripts (`data/*.ps1`) or ORM code | Require `codeFiles === 0`; ignore runtime subpaths only |
+| `.env.*` w/o `!.env.example` | Hides env templates | Pair with `!.env.example`/`.sample`/`.template` |
+| Ignoring deliverables | Blinds AI to outputs (`04-cleaned/`) | Place under `# ` toggles |
+
+## 4. Plain-Language Delivery
+
+Lead with reassurance (active, zero files deleted, reversible) + `--verify` savings; rank next steps (**Fix now / Quick win / Optional**); explain L3 vs L1 in one line (signpost vs lock); omit multi-tool sync unless asked/present; end with one easy reply choice.

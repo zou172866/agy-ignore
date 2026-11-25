@@ -44,14 +44,16 @@ See [skills/agy-ignore/references/guardrails.md](./skills/agy-ignore/references/
 node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --format md --top 12
 # Programmatic JSON output:
 node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --json
+# Isolated verification against the written .antigravityignore:
+node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --verify
 ```
 
 What `audit_workspace.mjs` inspects (without following directory symlinks or scanning `.git/` internals):
 - **Workspace overview:** total files, total MB, detected tech stacks, and existing ignore files (`.gitignore`, `.antigravityignore`, `.geminiignore`, `.aiexclude`, `.cursorignore`).
-- **Top bloat directories (depth 1 & 2):** ranked by both size and file count with automatic noise categories (`browser_profile`, `dependencies`, `build_cache`, `archives_releases`, `corpus_or_intermediate`, `lockfiles`).
-- **Sensitive files & profiles:** `.env` / `.env.*` (excluding `.env.example`/`.env.sample`/`.env.template`), `*.pem`, `*.key`, `secrets/`, browser profiles, and local `config.json` paired with `config.example.json` or gitignored.
-- **Multi-repo `.gitignore` leak audit (depth <= 2):** runs `git check-ignore --no-index` and `git ls-files` per repo to flag unignored leaks and already-tracked files.
-- **Actionable outputs:** deduplicated savings estimate, 5-section `.antigravityignore` draft (borderline outputs placed in commented toggles), per-repo `.gitignore` patch suggestions, and a copy-pasteable `permissions.deny` JSON snippet.
+- **Top bloat directories (depth 1 & 2):** ranked by both size and file count with automatic noise categories (`browser_profile`, `dependencies`, `build_cache`, `archives_releases`, `corpus_or_intermediate`, `model_media_assets`, `lockfiles`), protecting mixed dirs (`data/`, ORM `models/`, frontend `state/`) that contain active code.
+- **Sensitive files, weights & profiles:** `.env` / `.env.*` (excluding `.env.example`/`.env.sample`/`.env.template`), `*.pem`, `*.key`, `*.dpapi` (dynamic), `secrets/`, browser profiles, SQLite WAL/SHM companions (`*.sqlite*-wal`/`-shm`), AI model weights (`*.ckpt`/`*.pth`/`*.onnx`/`*.safetensors`/`*.gguf`), and local `config.json`.
+- **Multi-repo `.gitignore` leak & hardening audit (depth <= 2):** runs `git check-ignore --no-index` and `git ls-files` per repo to separate **Active Leaks** (fix now) from **Preventive Hardening** (optional `.env.*` / `*.pem` / `*.key` hygiene when 0 files currently leak).
+- **Actionable outputs & isolated `--verify`:** deduplicated savings estimate, 5-section `.antigravityignore` draft, real-file `--verify` check (verifying exact filtered files/MB, `.env.example` readability, and 0 accidentally ignored Git-tracked code files), and plain-language prioritized recommendations.
 
 ### 2. Optional Multi-Tool Sync
 
@@ -83,6 +85,7 @@ Usage anywhere:
 agy-ignore                  # Interactive menu in terminal; read-only report + Agent Guardrails in LLM/non-TTY
 agy-ignore --check          # Read-only audit report + Agent Guardrails (no file edits)
 agy-ignore --apply          # Create or incrementally merge .antigravityignore (preserves existing rules)
+agy-ignore --verify         # Verify written .antigravityignore (real savings + tracked-code safety)
 agy-ignore --sync           # Apply .antigravityignore + backup-sync .geminiignore & .aiexclude
 agy-ignore --fix-gitignore  # Append unignored leak rules to repo .gitignore files (never auto-untracks)
 ```

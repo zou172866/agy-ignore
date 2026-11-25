@@ -2,6 +2,7 @@
 // agy-ignore — Zero-dependency workspace bloat, sensitivity, and .gitignore leak auditor.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,14 +19,16 @@ const EMPTY = new Set();
 export const NOISE_CATEGORIES = Object.freeze([
   'browser_profile', 'dependencies', 'build_cache',
   'archives_releases', 'corpus_or_intermediate', 'lockfiles',
+  'model_media_assets',
 ]);
-const [BROWSER, DEPS, CACHE, ARCH, CORPUS] = NOISE_CATEGORIES;
+const [BROWSER, DEPS, CACHE, ARCH, CORPUS, , ASSETS] = NOISE_CATEGORIES;
 const SECRETS = 'secrets_dir', CFG = 'local_config', KEY = 'private_key_or_cert';
 
 const JS_LOCKS = 'package-lock.json pnpm-lock.yaml yarn.lock';
 const ARCH_BASE = 'zip tar tgz 7z rar';
 const MEDIA_BASE = 'mp4 mov mkv avi mp3 wav m4a';
 const DB_BASE = 'db db-wal db-shm';
+const SQLITE_EXTS = 'sqlite sqlite-wal sqlite-shm sqlite3 sqlite3-wal sqlite3-shm';
 const PY_M = 'pyproject.toml requirements.txt setup.py';
 const JAVA_M = 'pom.xml build.gradle build.gradle.kts';
 
@@ -33,10 +36,11 @@ const IGNORE_FILES = S('.gitignore .antigravityignore .geminiignore .aiexclude .
 const LOCKFILES = S(`${JS_LOCKS} bun.lockb bun.lock cargo.lock uv.lock poetry.lock pipfile.lock composer.lock gemfile.lock flake.lock`);
 const ARCHIVE_EXTS = E(`${ARCH_BASE} bz2 xz gz dmg iso whl`);
 const MEDIA_EXTS = E(`${MEDIA_BASE} webm flac ogg`);
-const DB_EXTS = E(`${DB_BASE} sqlite sqlite3`);
+const MODEL_EXTS = E('ckpt pth pt onnx safetensors gguf ggml tflite');
+const DB_EXTS = E(`${DB_BASE} ${SQLITE_EXTS}`);
 const CODE_EXTS = E('js mjs cjs ts tsx jsx py rs go java kt cs fs c cc cpp h hpp rb php swift sh ps1 bat cmd vue svelte');
 const DOC_EXTS = E('md txt json jsonl csv tsv xml yaml yml srt vtt parquet');
-const KEY_EXTS = E('pem key p12 pfx jks keystore kdbx');
+const KEY_EXTS = E('pem key p12 pfx jks keystore kdbx dpapi');
 const KEY_NAMES = S('id_rsa id_ed25519 id_ecdsa id_dsa');
 const SECRET_JSONS = S('credentials.json secrets.json settings.local.json');
 const DEP_DIRS = S('node_modules .venv venv .tox .pnpm-store .yarn bower_components pods .gradle');
@@ -45,11 +49,14 @@ const MARKERS = S(`package.json ${PY_M} cargo.toml go.mod ${JAVA_M}`);
 const SCOPED = S('bin env');
 const GENERIC_DIRS = new Set([...DEP_DIRS, ...CACHE_DIRS, 'target', 'vendor', 'obj']);
 const LEAK_CATS = new Set([BROWSER, SECRETS, DEPS, CACHE, CORPUS]);
-const STAT_KEYS = W('files bytes codeFiles docDataFiles archiveFiles');
+const STAT_KEYS = W('files bytes codeFiles docDataFiles archiveFiles mediaFiles weightFiles dbFiles');
 
 const DOTNET_RE = /\.(csproj|fsproj|vbproj|sln)$/;
 const BROWSER_RE = /^(\.?(edge|chrome|playwright|puppeteer|browser|selenium)[-_]?profile|\.playwright.*|user data)$/i;
 const ARCHIVE_DIR_RE = /(^|[-_.])(releases?|archives?|backups?|snapshots?|dist-packages)$/i;
+const ASSET_DIR_RE = /^(models?|model[-_]?weights?|weights?|checkpoints?|voices?|voice[-_]?packs?|embeddings?)$/i;
+const RUNTIME_DATA_RE = /^(state|runtime|.*[-_]data)$/i;
+const RUNTIME_FILE_RE = /(token|\.pid$|\.log$|\.jsonl$)/i;
 const INTERMEDIATE_RE = /^((0[1-3][-_]?)?(raw([-_]?data)?|normalized|chunks?.*)|.*[-_](chunks?.*|tmp)|\.?tmp|temp|intermediate|staging|outputs?|exports?|artifacts|traces|logs)$/i;
 const BORDERLINE_RE = /^(04[-_]?cleaned|cleaned|datasets?|corpus|samples?|fixtures?|candidate|eval[-_]?data)$/i;
 const CORPUS_RE = /^(0[1-4][-_]?(raw|normalized|chunks|cleaned)|.*chunks.*|corpus|datasets?)$/i;
@@ -71,7 +78,7 @@ export const formatMB = (b) => +(b / 1048576).toFixed(2);
 const pct = (a, b) => (b > 0 ? +((a / b) * 100).toFixed(1) : 0);
 
 export function parseArgs(argv) {
-  const o = { targetDir: '.', format: 'md', top: 12, maxDepth: 6, help: false };
+  const o = { targetDir: '.', format: 'md', top: 12, maxDepth: 6, verify: false, ignoreFile: '.antigravityignore', help: false };
   let pos = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], eq = a.indexOf('='), f = eq < 0 ? a : a.slice(0, eq);
@@ -85,6 +92,8 @@ export function parseArgs(argv) {
     };
     if (a === '-h' || a === '--help') o.help = true;
     else if (a === '--json') o.format = 'json';
+    else if (a === '--verify') o.verify = true;
+    else if (f === '--ignore-file') o.ignoreFile = val();
     else if (f === '--format') {
       const v = val();
       o.format = v === 'md' || v === 'json' ? v : fail(`Invalid ${f}: ${v}`);
@@ -98,7 +107,7 @@ export function parseArgs(argv) {
 }
 
 export const getUsageText = () =>
-  'Usage: audit_workspace.mjs [dir] [--format md|json] [--json] [--top N] [--max-depth N] [-h]';
+  'Usage: audit_workspace.mjs [dir] [--format md|json] [--json] [--top N] [--max-depth N] [--verify] [--ignore-file f] [-h]';
 
 const hasBrowserFp = (kids) => BROWSER_FPS.some(([a, b]) => kids.has(a) && kids.has(b));
 const isPyVenv = (l, kids) => l === 'env' && hasAny(kids, 'pyvenv.cfg site-packages');
@@ -122,6 +131,7 @@ export function isSensitiveFile(fileName, sibs = EMPTY) {
 
 export function classifyDirectory(name, {
   files = 0, bytes = 0, codeFiles: cf = 0, docDataFiles: df = 0, archiveFiles: af = 0,
+  mediaFiles: mf = 0, weightFiles: wf = 0, dbFiles: dbf = 0,
   hasGit, hasProjectMarker, directChildNamesLower: kids = EMPTY, siblingNamesLower: sibs = EMPTY,
 } = {}) {
   const l = low(name), n = files || 1;
@@ -136,6 +146,13 @@ export function classifyDirectory(name, {
     return hit(CACHE, '.NET');
   }
   if (ARCHIVE_DIR_RE.test(name) && (af > 0 || cf === 0 || bytes >= 524288)) return hit(ARCH, 'Archives');
+  if (ASSET_DIR_RE.test(name) && cf === 0 && (wf > 0 || mf > 0 || af > 0) && bytes >= 1048576) {
+    return hit(ASSETS, 'Model/media assets');
+  }
+  if (RUNTIME_DATA_RE.test(name) && cf === 0 && (dbf > 0 || [...kids].some((k) => RUNTIME_FILE_RE.test(k)))) {
+    const hasTok = [...kids].some((k) => k.includes('token'));
+    return hit(CORPUS, 'Runtime state/data', false, hasTok);
+  }
   if (INTERMEDIATE_RE.test(name)) {
     const codeHeavy = cf > 0 && cf / n > 0.3;
     return hit(CORPUS, codeHeavy ? 'Code in temp' : 'Intermediate', codeHeavy);
@@ -208,6 +225,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
   function walk(absDir, relDir, depth, inOpaque) {
     const acc = {
       files: 0, bytes: 0, codeFiles: 0, docDataFiles: 0, archiveFiles: 0,
+      mediaFiles: 0, weightFiles: 0, dbFiles: 0,
       hasGit: false, hasProjectMarker: false, directChildNamesLower: EMPTY,
     };
     let entries;
@@ -239,6 +257,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
         const c = classifyDirectory(name, { ...sub, siblingNamesLower: kids });
         if (c?.category === BROWSER) stacks.add('Browser Automation');
         else if (c?.category === CORPUS && CORPUS_RE.test(name)) stacks.add('AI / Data Corpus');
+        else if (c?.category === ASSETS) stacks.add('AI / Data Corpus');
         if (nextD <= 2 || c) {
           const { files, bytes, hasGit, hasProjectMarker } = sub;
           dirs.set(rel, {
@@ -250,10 +269,14 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
       } else if (st.isFile()) {
         const sz = st.size || 0, l = low(name), ext = path.extname(l);
         const isArch = ARCHIVE_EXTS.has(ext) || l.endsWith('.tar.gz'), isLock = LOCKFILES.has(l);
+        const isMedia = MEDIA_EXTS.has(ext), isModel = MODEL_EXTS.has(ext), isDb = DB_EXTS.has(ext);
         acc.files++; acc.bytes += sz;
         if (CODE_EXTS.has(ext)) acc.codeFiles++;
         if (DOC_EXTS.has(ext)) acc.docDataFiles++;
         if (isArch) acc.archiveFiles++;
+        if (isMedia) acc.mediaFiles++;
+        if (isModel) acc.weightFiles++;
+        if (isDb) acc.dbFiles++;
         if (opaque) continue;
 
         if (depth <= 2) {
@@ -269,8 +292,13 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
           if (isArch) { archives.push(rec); extraMedia.add(l.endsWith('.tar.gz') ? '*.tar.gz' : `*${ext}`); }
           filtFiles.set(rel, sz);
         }
-        if (MEDIA_EXTS.has(ext)) { filtFiles.set(rel, sz); extraMedia.add(`*${ext}`); }
-        else if (DB_EXTS.has(ext)) { filtFiles.set(rel, sz); extraDb.add(`*${ext}`); }
+        if (isMedia || isModel) { filtFiles.set(rel, sz); extraMedia.add(`*${ext}`); }
+        else if (isDb) {
+          filtFiles.set(rel, sz);
+          extraDb.add(`*${ext}`);
+          if (ext.startsWith('.sqlite3')) { extraDb.add('*.sqlite3'); extraDb.add('*.sqlite3-wal'); extraDb.add('*.sqlite3-shm'); }
+          else if (ext.startsWith('.sqlite')) { extraDb.add('*.sqlite'); extraDb.add('*.sqlite-wal'); extraDb.add('*.sqlite-shm'); }
+        }
         if (/\.(jsonl|parquet|csv)$/.test(ext) && sz >= 1048576) bigData.push(rel);
         const s = isSensitiveFile(name, kids);
         if (s) addSens(rel, false, s.category, s.reason, sz);
@@ -293,10 +321,10 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
   const gitAvailable = !gitZ(root, ['--version']).error;
   const dOf = (r) => (r === '.' ? 0 : r.split('/').length);
   const allRepos = [...repos, ...deepRepos].sort((a, b) => dOf(b) - dOf(a) || cmp(a, b));
-  const gitLeaks = [], gitRepos = [], gitignorePatches = [];
+  const gitLeaks = [], gitRepos = [], gitignorePatches = [], gitignoreHardening = [];
 
   if (gitAvailable && repos.size) {
-    const byRepo = new Map([...repos].map((r) => [r, { cands: new Map(), cfgs: [] }]));
+    const byRepo = new Map([...repos].map((r) => [r, { cands: new Map(), cfgs: [], hasEnv: false, keyExts: new Set() }]));
     const locate = (ws) => {
       const r = allRepos.find((x) => x === '.' || under(ws, x)), st = byRepo.get(r);
       return st && ws !== r ? [st, r === '.' ? ws : ws.slice(r.length + 1)] : null;
@@ -307,9 +335,21 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
       const [st, p] = loc, prev = st.cands.get(p);
       if (!prev || (highRisk && !prev.highRisk)) st.cands.set(p, { p, isDir, category, highRisk });
     };
-    for (const s of sens) addCand(s.path, s.isDir, s.category, true);
+    for (const s of sens) {
+      addCand(s.path, s.isDir, s.category, true);
+      const loc = locate(s.path);
+      if (loc) {
+        if (s.category === 'env_secret') loc[0].hasEnv = true;
+        if (!s.isDir && s.category === KEY) {
+          const [, ext] = keyInfo(s.path);
+          if (KEY_EXTS.has(ext) && ext !== '.pem' && ext !== '.key') loc[0].keyExts.add(ext);
+        }
+      }
+    }
     for (const r of allDirs) {
-      if (!r.borderline && LEAK_CATS.has(r.category)) addCand(r.path, true, r.category, r.category === BROWSER || r.category === SECRETS);
+      if (!r.borderline && (LEAK_CATS.has(r.category) || (r.category === ASSETS && r.bytes >= 5 * 1048576))) {
+        addCand(r.path, true, r.category, r.category === BROWSER || r.category === SECRETS);
+      }
     }
     for (const [ws, sz] of pendingCfgs) {
       const loc = locate(ws);
@@ -319,7 +359,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
     for (const repo of [...repos].sort(cmp)) {
       const repoAbs = repo === '.' ? root : path.join(root, ...repo.split('/'));
       const hasGitignore = fs.existsSync(path.join(repoAbs, '.gitignore'));
-      const { cands, cfgs } = byRepo.get(repo);
+      const { cands, cfgs, hasEnv, keyExts } = byRepo.get(repo);
       const pushRepo = (checkedCandidates, leakCount, error = null) =>
         gitRepos.push({ repo, hasGitignore, checkedCandidates, leakCount, error });
 
@@ -363,6 +403,23 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
         });
       }
       if (leakCount) gitignorePatches.push({ repo, rulesToAdd: [...rules].sort(cmp), untrackCommands: [...untrack].sort(cmp) });
+
+      // Preventive hygiene probes (separate from real leaks)
+      const probes = ['__agy_probe__.pem', '__agy_probe__.key', ...[...keyExts].sort().map((e) => `__agy_probe__${e}`)];
+      if (hasEnv) probes.unshift('.env.local');
+      const hIg = checkIgnore(repoAbs, probes);
+      if (!hIg.error) {
+        const hRules = [];
+        if (hasEnv && !hIg.ignored.has('.env.local')) {
+          hRules.push('.env.*', '!.env.example', '!.env.sample', '!.env.template');
+        }
+        if (!hIg.ignored.has('__agy_probe__.pem')) hRules.push('*.pem');
+        if (!hIg.ignored.has('__agy_probe__.key')) hRules.push('*.key');
+        for (const ext of [...keyExts].sort()) {
+          if (!hIg.ignored.has(`__agy_probe__${ext}`)) hRules.push(`*${ext}`);
+        }
+        if (hRules.length) gitignoreHardening.push({ repo, rulesToAdd: hRules });
+      }
       pushRepo(filtered.length, leakCount);
     }
   }
@@ -387,7 +444,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
     if (/_tmp$/i.test(r.name) && p.includes('/')) {
       const par = path.posix.dirname(p);
       tmpMap.set(par, [...(tmpMap.get(par) || []), p]);
-    } else spec.push(`${SCOPED.has(l) ? anchor(p) : escPat(p)}/`);
+    } else spec.push(`${SCOPED.has(l) || r.category === ASSETS || RUNTIME_DATA_RE.test(r.name) ? anchor(p) : escPat(p)}/`);
   }
   for (const [par, ps] of tmpMap) spec.push(ps.length >= 2 ? `${escPat(par)}/*_tmp/` : `${escPat(ps[0])}/`);
 
@@ -395,7 +452,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
   const deny = S('Read(.env) Read(.env.*) Read(**/.env) Read(**/.env.*) Read(**/*.pem) Read(**/*.key) Read(**/secrets/**)');
   for (const { path: p, isDir, category: c, bytes: sz } of sens) {
     if (!isDir) filtFiles.set(p, sz);
-    if (c === BROWSER || c === SECRETS) deny.add(`Read(${p}/**)`);
+    if (isDir) deny.add(`Read(${p}/**)`);
     else if (!isDir && c === CFG) {
       deny.add(`Read(${p})`);
       if (!isNested(p, activeSet)) spec.push(anchor(p));
@@ -435,7 +492,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
     ...(hasRoot ? ['# NOTE: Existing .antigravityignore — MERGE incrementally!'] : []),
     '', '# 1. Workspace bloat', ...(uSpec.length ? uSpec : ['# (None)']),
     '', '# 2. Deps, lockfiles & caches', ...sRules,
-    '', '# 3. Archives & media (keeps *.png, *.svg, *.json, *.md)', ...mRules,
+    '', '# 3. Archives, weights & media (keeps *.png, *.svg, *.json, *.md)', ...mRules,
     '', '# 4. Local env & keys (pair with Layer 1 permissions.deny)', ...kRules,
     '', '# 5. Optional toggles', ...(toggles.length ? toggles : ['# (None)']), '',
   ].join('\n');
@@ -456,8 +513,119 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
       fileReductionPct: pct(estFiles, total.files), sizeReductionPct: pct(estBytes, total.bytes),
       remainingFiles: Math.max(0, total.files - estFiles), remainingMB: formatMB(Math.max(0, total.bytes - estBytes)),
     },
-    recommendations: { antigravityIgnoreDraft, gitignorePatches, permissionsDeny: { permissions: { deny: [...deny] } } },
+    recommendations: { antigravityIgnoreDraft, gitignorePatches, gitignoreHardening, permissionsDeny: { permissions: { deny: [...deny] } } },
   };
+}
+
+export function verifyIgnoreFile(targetDir = '.', { ignoreFile = '.antigravityignore', maxFiles = 200000 } = {}) {
+  const root = path.resolve(targetDir);
+  const igPath = path.resolve(root, ignoreFile);
+  if (!fs.existsSync(igPath) || !fs.statSync(igPath).isFile()) fail(`Ignore file not found: ${igPath}`);
+  if (gitZ(root, ['--version']).error) fail('Git is required for --verify');
+
+  const files = [];
+  let truncated = false;
+  function walkAll(absDir, relDir) {
+    let entries;
+    try { entries = fs.readdirSync(absDir); } catch { return; }
+    for (const name of entries) {
+      if (name === '.git') continue;
+      const abs = path.join(absDir, name), rel = relDir ? `${relDir}/${name}` : name;
+      let st;
+      try { st = fs.lstatSync(abs); } catch { continue; }
+      if (st.isSymbolicLink()) continue;
+      if (st.isDirectory()) walkAll(abs, rel);
+      else if (st.isFile()) {
+        if (files.length >= maxFiles) { truncated = true; return; }
+        files.push({ rel, size: st.size || 0 });
+      }
+    }
+  }
+  walkAll(root, '');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-ign-'));
+  try {
+    const init = gitZ(tmp, ['init', '-q']);
+    if (init.error) fail(`git init failed: ${init.error}`);
+    fs.copyFileSync(igPath, path.join(tmp, '.gitignore'));
+
+    const checkBatch = (paths) => {
+      const hitSet = new Set();
+      for (let i = 0; i < paths.length; i += 4000) {
+        const res = checkIgnore(tmp, paths.slice(i, i + 4000));
+        if (res.error) fail(`git check-ignore failed: ${res.error}`);
+        for (const p of res.ignored) hitSet.add(p);
+      }
+      return hitSet;
+    };
+
+    const ignSet = checkBatch(files.map((f) => f.rel));
+    let iF = 0, iB = 0, kF = 0, kB = 0;
+    for (const f of files) {
+      if (ignSet.has(f.rel)) { iF++; iB += f.size; }
+      else { kF++; kB += f.size; }
+    }
+    const totB = iB + kB;
+
+    const trackedNonLockIgnored = [];
+    const trackedLocksIgnored = [];
+    if (fs.existsSync(path.join(root, '.git'))) {
+      const trkRes = gitZ(root, ['ls-files', '-z']);
+      if (!trkRes.error && trkRes.items.length) {
+        const trkIgn = checkBatch(trkRes.items);
+        for (const p of trkRes.items) {
+          if (!trkIgn.has(p)) continue;
+          if (LOCKFILES.has(low(path.posix.basename(p)))) trackedLocksIgnored.push(p);
+          else trackedNonLockIgnored.push(p);
+        }
+      }
+    }
+
+    const templateNames = ['.env.example', '.env.sample', '.env.template'].filter((t) => fs.existsSync(path.join(root, t)));
+    const tmplIgn = checkBatch(templateNames);
+    const blockedTemplates = templateNames.filter((t) => tmplIgn.has(t));
+    const readableTemplates = templateNames.filter((t) => !tmplIgn.has(t));
+
+    const sensProbes = ['.env', '.env.local', 'secrets/sample.key'];
+    const sensIgn = checkBatch(sensProbes);
+    const missedProbes = sensProbes.filter((p) => !sensIgn.has(p));
+
+    return {
+      root, ignoreFile, activeRules: countRules(igPath), truncated,
+      totalFiles: files.length, totalMB: formatMB(totB),
+      ignoredFiles: iF, ignoredMB: formatMB(iB),
+      fileReductionPct: pct(iF, files.length), sizeReductionPct: pct(iB, totB),
+      remainingFiles: kF, remainingMB: formatMB(kB),
+      readableTemplates, blockedTemplates,
+      trackedLocksIgnored, trackedNonLockIgnored,
+      missedSensitiveProbes: missedProbes,
+      ok: blockedTemplates.length === 0 && trackedNonLockIgnored.length === 0 && missedProbes.length === 0,
+    };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+export function renderVerifyMarkdown(v) {
+  const f = (n) => n.toLocaleString('en-US'), mb = (n) => n.toFixed(2), c = mdCode;
+  const lines = [
+    `# Ignore Verification Report (${c(v.ignoreFile)})`,
+    '',
+    `- **Root:** ${c(v.root)} | **Active rules:** ${v.activeRules} | **Status:** ${v.ok ? 'PASS' : 'WARN'}`,
+    `- **Filtered:** ${f(v.ignoredFiles)}/${f(v.totalFiles)} (**${v.fileReductionPct}%**), ${mb(v.ignoredMB)}/${mb(v.totalMB)} MB (**${v.sizeReductionPct}%**) | **Kept readable:** ${f(v.remainingFiles)} (${mb(v.remainingMB)} MB)${v.truncated ? ' *(truncated)*' : ''}`,
+    `- **Templates readable:** ${v.readableTemplates.length ? v.readableTemplates.map(c).join(', ') : '_None found_'}`,
+    `- **Tracked lockfiles filtered (expected):** ${v.trackedLocksIgnored.length}`,
+  ];
+  if (v.blockedTemplates.length) lines.push(`- **WARN — Templates accidentally ignored:** ${v.blockedTemplates.map(c).join(', ')}`);
+  if (v.missedSensitiveProbes.length) lines.push(`- **WARN — Sensitive probes NOT ignored:** ${v.missedSensitiveProbes.map(c).join(', ')}`);
+  if (v.trackedNonLockIgnored.length) {
+    const sample = v.trackedNonLockIgnored.slice(0, 20).map(c).join(', ');
+    const more = v.trackedNonLockIgnored.length > 20 ? ` (+${v.trackedNonLockIgnored.length - 20} more)` : '';
+    lines.push(`- **WARN — Git-tracked non-lock files ignored (${v.trackedNonLockIgnored.length}):** ${sample}${more}`);
+  } else {
+    lines.push('- **Tracked source/config files accidentally ignored:** 0');
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function tbl(spec, rows) {
@@ -483,14 +651,24 @@ export function renderMarkdown({ overview: o, topBySize, topByFileCount, sensiti
     ])),
   ];
 
-  const patches = rec.gitignorePatches.length ? [
-    '> Confirm before `.gitignore` / `git rm --cached`.',
-    ...rec.gitignorePatches.flatMap((p) => [
-      `### \`${p.repo === '.' ? '.gitignore' : `${p.repo}/.gitignore`}\``,
-      ...(p.rulesToAdd.length ? fence('gitignore', p.rulesToAdd) : []),
-      ...(p.untrackCommands.length ? fence('bash', p.untrackCommands) : []),
-    ]),
-  ] : ['_None._'];
+  const patches = [
+    ...(rec.gitignorePatches.length ? [
+      '> Confirm before `.gitignore` / `git rm --cached`.',
+      ...rec.gitignorePatches.flatMap((p) => [
+        `### \`${p.repo === '.' ? '.gitignore' : `${p.repo}/.gitignore`}\``,
+        ...(p.rulesToAdd.length ? fence('gitignore', p.rulesToAdd) : []),
+        ...(p.untrackCommands.length ? fence('bash', p.untrackCommands) : []),
+      ]),
+    ] : ['_None._']),
+    ...(rec.gitignoreHardening?.length ? [
+      '',
+      '### Preventive Hardening (Optional — 0 active leaks)',
+      ...rec.gitignoreHardening.flatMap((p) => [
+        `\`${p.repo === '.' ? '.gitignore' : `${p.repo}/.gitignore`}\`:`,
+        ...fence('gitignore', p.rulesToAdd),
+      ]),
+    ] : []),
+  ];
 
   const sections = [
     ['1. Workspace Overview', [
@@ -526,7 +704,11 @@ if (process.argv[1] && realUrl(fileURLToPath(import.meta.url)) === realUrl(proce
   try {
     const o = parseArgs(process.argv.slice(2));
     if (o.help) console.log(getUsageText());
-    else {
+    else if (o.verify) {
+      const res = verifyIgnoreFile(o.targetDir, o);
+      console.log(o.format === 'json' ? JSON.stringify(res, null, 2) : renderVerifyMarkdown(res));
+      if (!res.ok) process.exitCode = 1;
+    } else {
       const report = auditWorkspace(o.targetDir, o);
       console.log(o.format === 'json' ? JSON.stringify(report, null, 2) : renderMarkdown(report));
     }

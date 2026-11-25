@@ -4,9 +4,11 @@
 
 [![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
 
-**面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”小工具与技能。**
+**禁区管家（Ignore Guard）——帮 AI 躲开垃圾文件和密码，省额度、不犯傻、不泄密。**
 
-零外部依赖 · Node.js >= 18 · 跨平台 · **CLI 模式每轮对话 0 常驻提示词占用**（全局命令 `agy-ignore` + Windows 拖拽/右键快捷工具）· 同时保留 4 文件自包含 Skill（`skills/agy-ignore/`）。
+面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”小工具与技能。
+
+零外部依赖 · Node.js >= 18 · 跨平台 · 超轻 ~30 Token Skill 名片（装完直接说 **「禁区管家帮我建立一下禁区」**）· 同时提供彻底 0 提示词占用的全局命令 `agy-ignore` 与 Windows 拖拽/右键快捷工具。
 
 ---
 
@@ -91,22 +93,27 @@ agy-ignore --fix-gitignore  # 补齐未忽略的 .gitignore 高风险漏配（�
 - **拖拽或双击**：把任意项目文件夹直接拖到 `windows/agy-ignore.bat` 上，或双击弹出 Windows 原生目录选择器。
 - **一键右键菜单 + 桌面快捷方式**：双击 `windows/install-windows-menu.bat`（只写当前用户 `HKCU`，无需管理员权限），即可在任意文件夹右键调用或直接拖到桌面 `agy-ignore.lnk` 图标；随时双击 `windows/uninstall-windows-menu.bat` 干净卸载。
 
-### 方式三：作为 Antigravity / Gemini Skill 安装（可选）
+### 方式三：作为 Antigravity / Gemini Skill 安装（平时仅 ~30 Token，大白话直接叫）
 
 ```bash
-# 通过 skills.sh
+# 通过 skills.sh（社区用户装完即用）
 npx -y skills add zou172866/agy-ignore -g --all
 
 # 通过 Gemini CLI
 gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
 
-# 本机全局 Skill 安装 / 校验 / 卸载（卸掉即可彻底 0 提示词占用）
+# 本机全局 Skill 安装 / 校验 / 卸载
 npm run install:local
 npm run check:local
 npm run uninstall:local
 ```
 
-`skills/agy-ignore/` 100% 自包含（纯相对路径），兼容 OpenSpace 与 `/agy-ignore` 短口令触发。
+装完后在任意项目聊天框里直接说人话就行：
+- **「禁区管家帮我建立一下禁区」**（或 **`/agy-ignore`**）→ 自动体检并写入/增量更新 `.antigravityignore`
+- **「禁区管家只看一下」** → 只读体检出报告，不改任何文件
+- **「禁区管家全同步」** → 写入 `.antigravityignore` 并备份同步 `.geminiignore` 与 `.aiexclude`
+
+`skills/agy-ignore/` 100% 自包含（纯相对路径，仅 ~114 字符超短触发名片），兼容 OpenSpace。
 
 ---
 

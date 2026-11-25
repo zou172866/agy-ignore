@@ -4,9 +4,11 @@
 
 [![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
 
-**Audit-first workspace bloat analysis and three-layer ignore-rule tool & skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.**
+**Keep AI out of junk files and secrets — save quota, stay safe.**
 
-Zero external dependencies · Node.js >= 18 · Windows / macOS / Linux · **0 permanent prompt tokens in CLI mode** (`agy-ignore`) + Windows drag-and-drop / right-click shortcuts + optional 4-file self-contained Skill (`skills/agy-ignore/`).
+Audit-first workspace bloat analysis and three-layer ignore-rule tool & skill (**Ignore Guard**) for Google Antigravity, Gemini CLI, and Gemini Code Assist.
+
+Zero external dependencies · Node.js >= 18 · Windows / macOS / Linux · Ultra-light ~30-token Skill card (just say **"Ignore Guard, set up AI ignore"**) + 0-prompt-token CLI (`agy-ignore`) & Windows drag-and-drop / right-click shortcuts.
 
 ---
 
@@ -90,22 +92,27 @@ agy-ignore --fix-gitignore  # Append unignored leak rules to repo .gitignore fil
 - Drag any project folder onto `windows/agy-ignore.bat` (or double-click it to open the native folder picker).
 - Run `windows/install-windows-menu.bat` once (no admin needed; writes user-only `HKCU` registry) to add **Explorer right-click menu** + **Desktop shortcut** (`windows/uninstall-windows-menu.bat` cleanly removes both).
 
-### Mode 3: Antigravity / Gemini Skill (Optional)
+### Mode 3: Antigravity / Gemini Skill (~30 tokens idle, natural-language triggers)
 
 ```bash
-# Via skills.sh
+# Via skills.sh (ready out of the box)
 npx -y skills add zou172866/agy-ignore -g --all
 
 # Via Gemini CLI
 gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
 
-# Local global Antigravity install / uninstall
+# Local global Antigravity install / check / uninstall
 npm run install:local
 npm run check:local
 npm run uninstall:local
 ```
 
-`skills/agy-ignore/` is **100% self-contained** (relative links only), compatible with OpenSpace and bare `/agy-ignore` triggers.
+Once installed, just say in any project chat:
+- **`Ignore Guard, set up AI ignore`** (or **`/agy-ignore`**) — audit and write/merge `.antigravityignore`
+- **`Ignore Guard, audit only`** — read-only report, no file edits
+- **`Ignore Guard, sync`** — also backup-sync `.geminiignore` & `.aiexclude`
+
+`skills/agy-ignore/` is **100% self-contained** (relative links only, ~114-char trigger card) and compatible with OpenSpace.
 
 ---
 

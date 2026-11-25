@@ -1,17 +1,17 @@
 ---
 name: agy-ignore
-description: Audit-first workspace bloat & three-layer ignore rules (.antigravityignore, .gitignore leaks, permissions.deny, .geminiignore/.aiexclude). Triggers: /agy-ignore, 配忽略, 加ignore, 项目防噪, 体检忽略.
+description: Audit-first .antigravityignore & .gitignore leak guard (Ignore Guard / set up AI ignore / 禁区管家 / 建立禁区 / 屏蔽垃圾).
 ---
 
-# agy-ignore — Three-Layer Ignore SOP
+# agy-ignore (Ignore Guard / 禁区管家)
 
-Build ignore rules from real metrics, never static templates. Consult [guardrails.md](./references/guardrails.md) on demand for Strict Mode, `.aiexclude` negation caveats, or anti-patterns.
+Build ignore rules from real metrics, never static templates. Read [guardrails.md](./references/guardrails.md) on demand for Strict Mode, `.aiexclude` negation caveats, or anti-patterns.
 
 ## Quick Triggers
 
-- **Default** (`/agy-ignore`, `配忽略`, `加ignore`, `项目防噪`): audit workspace → write/merge `.antigravityignore` → report `.gitignore` leaks & `permissions.deny` → verify. Run directly; no upfront questions.
-- **Read-only** (`/agy-ignore 只看` / `check` / `体检忽略`): Step 1 audit & report only; no edits.
-- **Sync** (`/agy-ignore 全同步` / `sync`): default flow + Step 4 sync to `.geminiignore` & `.aiexclude`.
+- **Default** (`Ignore Guard` / `set up AI ignore` / `禁区管家` / `建立禁区` / `屏蔽垃圾` / `/agy-ignore`): audit workspace → write/merge `.antigravityignore` → report `.gitignore` leaks & `permissions.deny` → verify. Run directly; no upfront questions.
+- **Read-only** (`audit only` / `check` / `只看` / `体检`): Step 1 report only; edit no files.
+- **Sync** (`sync` / `全同步`): default flow + Step 4 sync to `.geminiignore` & `.aiexclude`.
 
 ## Invariants
 
@@ -30,7 +30,7 @@ Build ignore rules from real metrics, never static templates. Consult [guardrail
    ```
 2. **Layer 3 (`.antigravityignore`)**: write/merge 5 sections—workspace bloat, deps/lockfiles/caches, heavy archives/media, env/keys (`!.env.example`), and `# ` toggles.
 3. **Layer 2 & 1**: list per-repo `.gitignore` patches + `git rm --cached` (apply only if confirmed), and output `permissions.deny` JSON for **Settings → Security / Permissions (Strict Mode)**.
-4. **Optional sync** ([sync_ignores.mjs](./scripts/sync_ignores.mjs), on `全同步`/`sync` or request):
+4. **Optional sync** ([sync_ignores.mjs](./scripts/sync_ignores.mjs), on `sync`/`全同步` or request):
    ```bash
    node ./scripts/sync_ignores.mjs "<workspace_dir>" --targets .geminiignore,.aiexclude --dry-run
    node ./scripts/sync_ignores.mjs "<workspace_dir>" --targets .geminiignore,.aiexclude --backup

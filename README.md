@@ -4,9 +4,9 @@
 
 [![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
 
-**Audit-first workspace bloat analysis and three-layer ignore-rule customization skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.**
+**Audit-first workspace bloat analysis and three-layer ignore-rule tool & skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.**
 
-Zero external dependencies · Node.js >= 18 · Windows / macOS / Linux · UTF-8 & CJK path safe · Ultra-compact 4-file self-contained skill (`skills/agy-ignore/`: 39-line `SKILL.md` with <200-char trigger description for minimal per-turn token overhead).
+Zero external dependencies · Node.js >= 18 · Windows / macOS / Linux · **0 permanent prompt tokens in CLI mode** (`agy-ignore`) + Windows drag-and-drop / right-click shortcuts + optional 4-file self-contained Skill (`skills/agy-ignore/`).
 
 ---
 
@@ -64,34 +64,48 @@ node skills/agy-ignore/scripts/sync_ignores.mjs /path/to/workspace --targets .ge
 
 ---
 
-## Installation
+## Installation & Zero-Prompt-Token Modes
 
-### Via `skills.sh` (Recommended for community installs)
+### Mode 1: Global CLI Tool (`agy-ignore`, **0 permanent prompt tokens**, Recommended)
 
-```bash
-npx -y skills add zou172866/agy-ignore -g --all
-```
-
-### Via Gemini CLI
-
-```bash
-gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
-```
-
-### Local Clone & Global Antigravity Install
+Run `agy-ignore` inside any AI chat (**"run `agy-ignore` and help me review"**) or terminal without keeping any skill in your permanent system prompt:
 
 ```bash
 git clone https://github.com/zou172866/agy-ignore.git
 cd agy-ignore
-npm run install:local
-npm run check:local
+npm link
 ```
 
-This syncs `skills/agy-ignore/` to `~/.gemini/config/skills/agy-ignore/` (e.g. `C:\Users\<user>\.gemini\config\skills\agy-ignore\` on Windows) and verifies exact file list + SHA-256 content hashes with zero drift. Remove anytime with `npm run uninstall:local`.
+Usage anywhere:
+```bash
+agy-ignore                  # Interactive menu in terminal; read-only report + Agent Guardrails in LLM/non-TTY
+agy-ignore --check          # Read-only audit report + Agent Guardrails (no file edits)
+agy-ignore --apply          # Create or incrementally merge .antigravityignore (preserves existing rules)
+agy-ignore --sync           # Apply .antigravityignore + backup-sync .geminiignore & .aiexclude
+agy-ignore --fix-gitignore  # Append unignored leak rules to repo .gitignore files (never auto-untracks)
+```
 
-### OpenSpace Compatibility
+### Mode 2: Windows Drag-and-Drop / Double-Click / Right-Click Menu
 
-`skills/agy-ignore/` is **100% self-contained**—every script and reference link inside `SKILL.md` uses relative paths (`./scripts/...`, `./references/...`). It can be uploaded directly to OpenSpace or copied into any agent skills directory with zero broken links.
+- Drag any project folder onto `windows/agy-ignore.bat` (or double-click it to open the native folder picker).
+- Run `windows/install-windows-menu.bat` once (no admin needed; writes user-only `HKCU` registry) to add **Explorer right-click menu** + **Desktop shortcut** (`windows/uninstall-windows-menu.bat` cleanly removes both).
+
+### Mode 3: Antigravity / Gemini Skill (Optional)
+
+```bash
+# Via skills.sh
+npx -y skills add zou172866/agy-ignore -g --all
+
+# Via Gemini CLI
+gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
+
+# Local global Antigravity install / uninstall
+npm run install:local
+npm run check:local
+npm run uninstall:local
+```
+
+`skills/agy-ignore/` is **100% self-contained** (relative links only), compatible with OpenSpace and bare `/agy-ignore` triggers.
 
 ---
 
@@ -99,6 +113,12 @@ This syncs `skills/agy-ignore/` to `~/.gemini/config/skills/agy-ignore/` (e.g. `
 
 ```text
 agy-ignore/
+├── bin/
+│   └── agy-ignore.mjs
+├── windows/
+│   ├── agy-ignore.bat
+│   ├── install-windows-menu.bat
+│   └── uninstall-windows-menu.bat
 ├── skills/agy-ignore/
 │   ├── SKILL.md
 │   ├── scripts/
@@ -109,7 +129,8 @@ agy-ignore/
 ├── scripts/
 │   └── install-local.mjs
 ├── tests/
-│   └── audit_workspace.test.mjs
+│   ├── audit_workspace.test.mjs
+│   └── cli_tool.test.mjs
 ├── package.json
 ├── README.md
 ├── README.zh-CN.md

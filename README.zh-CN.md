@@ -4,9 +4,9 @@
 
 [![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
 
-**面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”忽略规则定制技能。**
+**面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”小工具与技能。**
 
-零外部依赖 · Node.js >= 18 · Windows / macOS / Linux 跨平台 · 原生支持中文/UTF-8 路径 · 超轻量 4 文件自包含分发（`skills/agy-ignore/`：39 行 `SKILL.md` + <200 字触发描述，极大降低每轮常驻 Token 开销）。
+零外部依赖 · Node.js >= 18 · 跨平台 · **CLI 模式每轮对话 0 常驻提示词占用**（全局命令 `agy-ignore` + Windows 拖拽/右键快捷工具）· 同时保留 4 文件自包含 Skill（`skills/agy-ignore/`）。
 
 ---
 
@@ -64,34 +64,49 @@ node skills/agy-ignore/scripts/sync_ignores.mjs /path/to/workspace --targets .ge
 
 ---
 
-## 安装方式
+## 安装与零提示词用法
 
-### 通过 `skills.sh` 安装（推荐）
+### 方式一：全局命令行工具 `agy-ignore`（**0 常驻提示词占用**，推荐）
 
-```bash
-npx -y skills add zou172866/agy-ignore -g --all
-```
-
-### 通过 Gemini CLI 安装
-
-```bash
-gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
-```
-
-### 本地克隆并安装到本机 Antigravity 全局 Skills
+不想让低频 Skill 长期占用系统提示词时，用 `npm link` 注册为全局命令即可：
 
 ```bash
 git clone https://github.com/zou172866/agy-ignore.git
 cd agy-ignore
-npm run install:local
-npm run check:local
+npm link
 ```
 
-以上命令会将 `skills/agy-ignore/` 同步安装到 `~/.gemini/config/skills/agy-ignore/`（Windows 默认为 `C:\Users\<用户名>\.gemini\config\skills\agy-ignore\`），并通过精确文件清单 + SHA-256 校验确保零漂移。随时可运行 `npm run uninstall:local` 卸载。
+- **在大模型对话里按需调用**：直接说一句 **`跑 agy-ignore 帮我定忽略方案`**，模型运行 `agy-ignore` 会自动拿到紧凑体检报告 + 内置安全红线，无需任何常驻系统提示词。
+- **在终端直接运行**：
+```bash
+agy-ignore                  # 终端里进入单键交互菜单；大模型/脚本调用自动输出只读报告 + 红线提示
+agy-ignore --check          # 只读体检，不改任何文件
+agy-ignore --apply          # 创建或无损增量合并 .antigravityignore（保留已有用户规则）
+agy-ignore --sync           # 写入 .antigravityignore 并备份同步到 .geminiignore 与 .aiexclude
+agy-ignore --fix-gitignore  # 补齐未忽略的 .gitignore 高风险漏配（绝不自动取消追踪已提交文件）
+```
 
-### OpenSpace 兼容说明
+### 方式二：Windows 免命令行快捷工具（拖放 / 双击 / 右键菜单）
 
-`skills/agy-ignore/` 目录内所有脚本与参考文档链接均使用相对路径（`./scripts/...`、`./references/...`），100% 自包含，可直接用于 OpenSpace 上传或独立复制到任意 Agent Skills 目录，零断链。
+- **拖拽或双击**：把任意项目文件夹直接拖到 `windows/agy-ignore.bat` 上，或双击弹出 Windows 原生目录选择器。
+- **一键右键菜单 + 桌面快捷方式**：双击 `windows/install-windows-menu.bat`（只写当前用户 `HKCU`，无需管理员权限），即可在任意文件夹右键调用或直接拖到桌面 `agy-ignore.lnk` 图标；随时双击 `windows/uninstall-windows-menu.bat` 干净卸载。
+
+### 方式三：作为 Antigravity / Gemini Skill 安装（可选）
+
+```bash
+# 通过 skills.sh
+npx -y skills add zou172866/agy-ignore -g --all
+
+# 通过 Gemini CLI
+gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
+
+# 本机全局 Skill 安装 / 校验 / 卸载（卸掉即可彻底 0 提示词占用）
+npm run install:local
+npm run check:local
+npm run uninstall:local
+```
+
+`skills/agy-ignore/` 100% 自包含（纯相对路径），兼容 OpenSpace 与 `/agy-ignore` 短口令触发。
 
 ---
 
@@ -99,6 +114,12 @@ npm run check:local
 
 ```text
 agy-ignore/
+├── bin/
+│   └── agy-ignore.mjs
+├── windows/
+│   ├── agy-ignore.bat
+│   ├── install-windows-menu.bat
+│   └── uninstall-windows-menu.bat
 ├── skills/agy-ignore/
 │   ├── SKILL.md
 │   ├── scripts/
@@ -109,7 +130,8 @@ agy-ignore/
 ├── scripts/
 │   └── install-local.mjs
 ├── tests/
-│   └── audit_workspace.test.mjs
+│   ├── audit_workspace.test.mjs
+│   └── cli_tool.test.mjs
 ├── package.json
 ├── README.md
 ├── README.zh-CN.md

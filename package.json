@@ -1,9 +1,12 @@
 {
   "name": "agy-ignore",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Audit-first three-layer context noise reduction and ignore-rule customization skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "agy-ignore": "./bin/agy-ignore.mjs"
+  },
   "engines": {
     "node": ">=18.0.0"
   },

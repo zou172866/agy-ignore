@@ -1,6 +1,6 @@
-# agy-ignore
+**English** | [简体中文](./README.zh-CN.md)
 
-English | [简体中文](./README.zh-CN.md)
+# agy-ignore
 
 **Audit-first workspace bloat analysis and three-layer ignore-rule customization skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.**
 

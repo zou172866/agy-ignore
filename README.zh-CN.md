@@ -1,6 +1,6 @@
-# agy-ignore
+[English](./README.md) | **简体中文**
 
-[English](./README.md) | 简体中文
+# agy-ignore
 
 **面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”忽略规则定制技能。**
 

@@ -2,6 +2,8 @@
 
 # agy-ignore
 
+[![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
+
 **Audit-first workspace bloat analysis and three-layer ignore-rule customization skill for Google Antigravity, Gemini CLI, and Gemini Code Assist.**
 
 Zero external dependencies · Node.js >= 18 · Windows / macOS / Linux · UTF-8 & CJK path safe · Ultra-compact 4-file self-contained skill (`skills/agy-ignore/`: 39-line `SKILL.md` with <200-char trigger description for minimal per-turn token overhead).

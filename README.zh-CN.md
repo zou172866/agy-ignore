@@ -2,6 +2,8 @@
 
 # agy-ignore
 
+[![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
+
 **面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”忽略规则定制技能。**
 
 零外部依赖 · Node.js >= 18 · Windows / macOS / Linux 跨平台 · 原生支持中文/UTF-8 路径 · 超轻量 4 文件自包含分发（`skills/agy-ignore/`：39 行 `SKILL.md` + <200 字触发描述，极大降低每轮常驻 Token 开销）。

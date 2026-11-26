@@ -6,7 +6,7 @@
 
 **Keep AI out of junk files and secrets — save quota, stay safe.**
 
-Audit-first workspace bloat analysis and three-layer ignore-rule tool & skill (**Ignore Guard**) for Google Antigravity, Gemini CLI, and Gemini Code Assist.
+Audit-first workspace bloat analysis and three-layer ignore-rule tool & skill (**Ignore Guard**) for Google Antigravity, DeepSeek Harness (`dsh`), Gemini CLI, and Gemini Code Assist.
 
 Zero external dependencies · Node.js >= 18 · Windows / macOS / Linux · Ultra-light ~30-token Skill card (just say **"Ignore Guard, set up AI ignore"**) + 0-prompt-token CLI (`agy-ignore`) & Windows drag-and-drop / right-click shortcuts.
 
@@ -85,6 +85,7 @@ Usage anywhere:
 agy-ignore                  # Interactive menu in terminal; read-only report + Agent Guardrails in LLM/non-TTY
 agy-ignore --check          # Read-only audit report + Agent Guardrails (no file edits)
 agy-ignore --apply          # Create or incrementally merge .antigravityignore (preserves existing rules)
+agy-ignore --target dsh --apply   # Create or merge .dshignore for DeepSeek Harness (also supports --verify/--sync)
 agy-ignore --verify         # Verify written .antigravityignore (real savings + tracked-code safety)
 agy-ignore --sync           # Apply .antigravityignore + backup-sync .geminiignore & .aiexclude
 agy-ignore --fix-gitignore  # Append unignored leak rules to repo .gitignore files (never auto-untracks)
@@ -108,6 +109,12 @@ gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/
 npm run install:local
 npm run check:local
 npm run uninstall:local
+
+# DeepSeek Harness (`dsh`) local skill install / check / uninstall (~/.dsh/skills/agy-ignore)
+npm run install:dsh
+npm run check:dsh
+npm run uninstall:dsh
+# Or install to multiple hosts at once: node scripts/install-local.mjs --target antigravity,dsh,agents
 ```
 
 Once installed, just say in any project chat:

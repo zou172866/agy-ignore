@@ -6,7 +6,7 @@
 
 **禁区助手 / 禁区管家（Ignore Guard）——帮 AI 躲开垃圾文件和密码，省额度、不犯傻、不泄密。**
 
-面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”小工具与技能。
+面向 Google Antigravity、DeepSeek Harness（`dsh`）、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”小工具与技能。
 
 零外部依赖 · Node.js >= 18 · 跨平台 · 超轻 ~30 Token Skill 名片（装完直接说 **「禁区助手帮我建立一下禁区」** 或 **「禁区管家帮我建立一下禁区」**）· 同时提供彻底 0 提示词占用的全局命令 `agy-ignore` 与 Windows 拖拽/右键快捷工具。
 
@@ -86,6 +86,7 @@ npm link
 agy-ignore                  # 终端里进入单键交互菜单；大模型/脚本调用自动输出只读报告 + 红线提示
 agy-ignore --check          # 只读体检，不改任何文件
 agy-ignore --apply          # 创建或无损增量合并 .antigravityignore（保留已有用户规则）
+agy-ignore --target dsh --apply   # 为 DeepSeek Harness 创建或增量合并 .dshignore（支持 --verify/--sync）
 agy-ignore --verify         # 隔离验真已落盘的 .antigravityignore（真实减负 + 防源码误伤）
 agy-ignore --sync           # 写入 .antigravityignore 并备份同步到 .geminiignore 与 .aiexclude
 agy-ignore --fix-gitignore  # 补齐未忽略的 .gitignore 高风险漏配（绝不自动取消追踪已提交文件）
@@ -105,10 +106,16 @@ npx -y skills add zou172866/agy-ignore -g --all
 # 通过 Gemini CLI
 gemini skills install https://github.com/zou172866/agy-ignore.git --path skills/agy-ignore
 
-# 本机全局 Skill 安装 / 校验 / 卸载
+# 本机全局 Antigravity Skill 安装 / 校验 / 卸载
 npm run install:local
 npm run check:local
 npm run uninstall:local
+
+# DeepSeek Harness（dsh）本地 Skill 安装 / 校验 / 卸载（~/.dsh/skills/agy-ignore，热监听免重启）
+npm run install:dsh
+npm run check:dsh
+npm run uninstall:dsh
+# 也可一次装到多个宿主：node scripts/install-local.mjs --target antigravity,dsh,agents
 ```
 
 装完后在任意项目聊天框里直接说人话就行：

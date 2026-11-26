@@ -6,18 +6,19 @@ Ignore files are **soft context filters**, never a security boundary.
 
 | Layer | Mechanism | Security? | Scope & Goal |
 | --- | --- | --- | --- |
-| **L1: Hard Wall** | `permissions.deny` + Strict Mode (`~/.gemini/config/config.json`) | **Yes** | Blocks AI reads of `.env*`, keys, `secrets/`, browser profiles, local `config.json`, sensitive state dirs |
+| **L1: Hard Wall** | Antigravity: `permissions.deny` + Strict Mode; DSH: sandbox/presets + `agy-dart` guard | **Yes** | Blocks reads of `.env*`, keys, `secrets/`, profiles, local `config.json` |
 | **L2: Repo Baseline** | `.gitignore` (root + nested repos) | Commit guard | Blocks staging secrets, profiles, deps, weights, exports |
-| **L3: Context Filter** | `.antigravityignore` (sync: `.geminiignore`, `.aiexclude`) | **No** | Cuts bloat from caches, lockfiles, weights, archives, runtime state, intermediate corpora |
+| **L3: Context Filter** | `.antigravityignore` / `.dshignore` (sync: `.geminiignore`, `.aiexclude`) | **No** | Cuts bloat from caches, lockfiles, weights, archives, state, corpora |
 
 ## 2. Operational Caveats
 
-- **L1 & Strict Mode:** Never auto-edit `~/.gemini/config/config.json`. Direct `@file` reads & shell bypass L3—pair `permissions.deny` with **Strict Mode**; keep `.env.example` readable.
-- **Nested repos:** Root `.gitignore` does **not** protect nested `sub-repo/.git`; patch separately.
-- **Tracked files:** `.gitignore` will not untrack them—confirm before `git rm --cached`; rotate pushed secrets immediately.
-- **Leaks vs hardening:** Flag unignored/tracked paths as **fix now**; label missing `.env.*`/`*.pem`/`*.key` rules (0 leaks) as **quick win**.
-- **False-positive triage:** Public-only CA `.pem` (no `PRIVATE KEY`) & ML `config.json` (no secret keys) skip `permissions.deny`.
-- **`.aiexclude` negation:** Some parsers restrict `!pattern` (`!.env.example`)—check synced `.aiexclude`.
+- **L1 & Strict Mode:** Never auto-edit `~/.gemini/config/config.json`. Shell/direct reads bypass L3—pair L1 with **Strict Mode**; keep `.env.example` readable.
+- **DSH:** `glob`/`grep` use `--no-ignore --hidden`; `.dshignore` serves `dsh-plugin-ignore`/`agy-dart`, never replaces `.gitignore`/L1.
+- **Nested repos:** Root `.gitignore` skips nested `sub-repo/.git`; patch separately.
+- **Tracked files:** `.gitignore` won't untrack—confirm `git rm --cached`; rotate pushed secrets.
+- **Leaks vs hardening:** Unignored/tracked → **fix now**; missing secret rules (0 leaks) → **quick win**.
+- **False positives:** Public CA `.pem` (no `PRIVATE KEY`) & zero-secret ML `config.json` skip `permissions.deny`.
+- **`.aiexclude` negation:** Some parsers restrict `!pattern` (`!.env.example`)—check synced file.
 
 ## 3. Anti-Patterns (Never Emit Blindly)
 

@@ -16,8 +16,49 @@ export const DEFAULT_SOURCE_DIR = path.join(REPO_ROOT, 'skills', 'agy-ignore');
 
 const IGNORED_OS_JUNK = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
 
+export const TARGET_HOSTS = Object.freeze(['antigravity', 'dsh', 'agents']);
+
 export function getDefaultDestDir(homeDir = os.homedir()) {
   return path.join(homeDir, '.gemini', 'config', 'skills', 'agy-ignore');
+}
+
+export function getDestDirForTarget(target = 'antigravity', homeDir = os.homedir(), env = process.env) {
+  const key = String(target || 'antigravity').trim().toLowerCase();
+  if (key === 'antigravity' || key === 'agy') {
+    return getDefaultDestDir(homeDir);
+  }
+  if (key === 'dsh' || key === 'deepseek-harness') {
+    const dshHome = env?.DSH_HOME && String(env.DSH_HOME).trim() ? path.resolve(String(env.DSH_HOME).trim()) : path.join(homeDir, '.dsh');
+    return path.join(dshHome, 'skills', 'agy-ignore');
+  }
+  if (key === 'agents') {
+    const agentsHome = env?.DSH_AGENTS_HOME && String(env.DSH_AGENTS_HOME).trim() ? path.resolve(String(env.DSH_AGENTS_HOME).trim()) : path.join(homeDir, '.agents');
+    return path.join(agentsHome, 'skills', 'agy-ignore');
+  }
+  throw new Error(`Unknown target: "${target}". Expected antigravity, dsh, agents, or all.`);
+}
+
+export function resolveTargetDests(targetsSpec, homeDir = os.homedir(), env = process.env) {
+  const rawList = Array.isArray(targetsSpec)
+    ? targetsSpec
+    : String(targetsSpec || 'antigravity').split(',');
+  const expanded = [];
+  const seen = new Set();
+  for (const raw of rawList) {
+    const item = String(raw || '').trim().toLowerCase();
+    if (!item) continue;
+    const names = item === 'all' ? TARGET_HOSTS : [item];
+    for (const name of names) {
+      const canonical = name === 'agy' ? 'antigravity' : name === 'deepseek-harness' ? 'dsh' : name;
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      expanded.push({ target: canonical, dest: getDestDirForTarget(canonical, homeDir, env) });
+    }
+  }
+  if (!expanded.length) {
+    throw new Error('Empty --target list.');
+  }
+  return expanded;
 }
 
 function readFlagValue(argv, i, flagName) {
@@ -31,10 +72,13 @@ function readFlagValue(argv, i, flagName) {
   return { value, nextIndex };
 }
 
-export function parseArgs(argv) {
+export function parseArgs(argv, homeDir = os.homedir(), env = process.env) {
   const opts = {
     source: DEFAULT_SOURCE_DIR,
-    dest: getDefaultDestDir(),
+    dest: getDefaultDestDir(homeDir),
+    destExplicit: false,
+    target: 'antigravity',
+    targets: [{ target: 'antigravity', dest: getDefaultDestDir(homeDir) }],
     check: false,
     uninstall: false,
     dryRun: false,
@@ -68,6 +112,13 @@ export function parseArgs(argv) {
       const { value, nextIndex } = readFlagValue(argv, i, '--dest');
       i = nextIndex;
       opts.dest = path.resolve(value);
+      opts.destExplicit = true;
+      continue;
+    }
+    if (arg === '--target' || arg.startsWith('--target=')) {
+      const { value, nextIndex } = readFlagValue(argv, i, '--target');
+      i = nextIndex;
+      opts.target = value;
       continue;
     }
     if (arg === '--source' || arg.startsWith('--source=')) {
@@ -83,6 +134,13 @@ export function parseArgs(argv) {
     throw new Error('Cannot combine --check and --uninstall.');
   }
 
+  if (opts.destExplicit) {
+    opts.targets = [{ target: 'custom', dest: opts.dest }];
+  } else {
+    opts.targets = resolveTargetDests(opts.target, homeDir, env);
+    opts.dest = opts.targets[0].dest;
+  }
+
   return opts;
 }
 
@@ -91,6 +149,7 @@ export function getUsageText() {
     'Usage: node scripts/install-local.mjs [options]',
     '',
     'Options:',
+    '  --target <hosts>   Target host(s): antigravity, dsh, agents, all, or comma list (default: antigravity)',
     '  --dest <path>      Override destination directory (default: ~/.gemini/config/skills/agy-ignore)',
     '  --source <path>    Override source skill directory (default: <repo>/skills/agy-ignore)',
     '  --check            Verify exact file list + SHA-256 content match (zero drift)',
@@ -431,22 +490,25 @@ if (isExecutedDirectly()) {
       process.exit(0);
     }
 
-    let res;
-    if (opts.check) {
-      res = checkSkill(opts);
-    } else if (opts.uninstall) {
-      res = uninstallSkill(opts);
-    } else {
-      res = installSkill(opts);
-    }
+    const runOne = (targetOpts) => {
+      if (opts.check) return checkSkill(targetOpts);
+      if (opts.uninstall) return uninstallSkill(targetOpts);
+      return installSkill(targetOpts);
+    };
+
+    const results = opts.targets.map((entry) => ({
+      target: entry.target,
+      ...runOne({ ...opts, dest: entry.dest }),
+    }));
+    const single = results.length === 1;
 
     if (opts.json) {
-      process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(single ? results[0] : { results }, null, 2)}\n`);
     } else {
-      process.stdout.write(`${formatResult(res)}\n`);
+      process.stdout.write(`${results.map(formatResult).join('\n')}\n`);
     }
 
-    if (opts.check && !res.inSync) {
+    if (opts.check && results.some((r) => !r.inSync)) {
       process.exit(1);
     }
   } catch (err) {

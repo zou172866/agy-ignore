@@ -43,7 +43,8 @@ export function getHelpText() {
     '  --apply                       Create or incrementally merge .antigravityignore',
     '  --sync                        Also sync .antigravityignore -> .geminiignore,.aiexclude',
     '  --verify                      Verify written ignore file in an isolated Git check',
-    '  --ignore-file <file>          Ignore file name for --verify (default: .antigravityignore)',
+    '  --ignore-file <file>          Primary ignore file for apply/verify/sync (default: .antigravityignore, or .dshignore with --target dsh)',
+    '  --target <antigravity|dsh>    Host preset: antigravity (.antigravityignore) or dsh (.dshignore)',
     '  --targets <list>              Comma-separated sync targets (default: .geminiignore,.aiexclude)',
     '  --fix-gitignore               Append missing high-risk leak rules to repo .gitignore files',
     '  --dry-run                     Preview file changes without writing to disk',
@@ -67,6 +68,8 @@ export function parseCliArgs(argv = []) {
     sync: false,
     verify: false,
     ignoreFile: '.antigravityignore',
+    ignoreFileExplicit: false,
+    target: 'antigravity',
     fixGitignore: false,
     dryRun: false,
     force: false,
@@ -93,7 +96,12 @@ export function parseCliArgs(argv = []) {
     else if (a === '--apply') opts.apply = true;
     else if (a === '--sync') opts.sync = true;
     else if (a === '--verify') opts.verify = true;
-    else if (a === '--ignore-file') opts.ignoreFile = readVal(argv, i++, '--ignore-file');
+    else if (a === '--ignore-file') { opts.ignoreFile = readVal(argv, i++, '--ignore-file'); opts.ignoreFileExplicit = true; }
+    else if (a === '--target') {
+      const v = low(readVal(argv, i++, '--target'));
+      if (v !== 'antigravity' && v !== 'dsh') throw new Error(`Invalid --target: ${v} (expected antigravity or dsh)`);
+      opts.target = v;
+    }
     else if (a === '--fix-gitignore') opts.fixGitignore = true;
     else if (a === '--dry-run') opts.dryRun = true;
     else if (a === '--force') { opts.force = true; opts.backup = false; }
@@ -127,6 +135,7 @@ export function parseCliArgs(argv = []) {
       throw new Error(`Unexpected argument: ${a}`);
     }
   }
+  if (opts.target === 'dsh' && !opts.ignoreFileExplicit) opts.ignoreFile = '.dshignore';
   if (opts.noPause) opts.pause = false;
   return opts;
 }
@@ -170,7 +179,7 @@ function canonicalToggle(line) {
   if (!m) return null;
   const candidate = m[1].trim();
   // Skip headings, notes, and placeholders
-  if (/^(\d+\.|---|===|NOTE:|\(None\)|\.antigravityignore|Added by agy-ignore|Optional toggles)/i.test(candidate)) return null;
+  if (/^(\d+\.|---|===|NOTE:|\(None\)|\.(?:antigravityignore|dshignore|geminiignore|aiexclude)|Added by agy-ignore|Optional toggles)/i.test(candidate)) return null;
   if (/\s{2,}|—|--/.test(candidate)) return null;
   return canonicalRule(candidate);
 }
@@ -178,7 +187,7 @@ function canonicalToggle(line) {
 export function mergeAntigravityIgnore(existingContent, draftContent) {
   const draftLines = draftContent.replace(/\r\n/g, '\n').split('\n');
   const cleanedDraft = draftLines
-    .filter((l) => !/^#\s*NOTE:\s*Existing\s+\.antigravityignore/i.test(l.trim()))
+    .filter((l) => !/^#\s*NOTE:\s*Existing\s+\.(?:antigravityignore|dshignore|geminiignore|aiexclude)/i.test(l.trim()))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trimEnd() + '\n';
@@ -253,9 +262,9 @@ export function mergeAntigravityIgnore(existingContent, draftContent) {
   };
 }
 
-export function applyAntigravityIgnore(workspaceRoot, report, { dryRun = false } = {}) {
+export function applyAntigravityIgnore(workspaceRoot, report, { dryRun = false, ignoreFile = '.antigravityignore' } = {}) {
   const root = path.resolve(workspaceRoot);
-  const targetPath = path.join(root, '.antigravityignore');
+  const targetPath = path.join(root, ignoreFile);
   const st = assertSafePathInside(root, targetPath);
   const existing = st ? fs.readFileSync(targetPath, 'utf8') : null;
   const merged = mergeAntigravityIgnore(existing, report.recommendations.antigravityIgnoreDraft);
@@ -266,6 +275,7 @@ export function applyAntigravityIgnore(workspaceRoot, report, { dryRun = false }
 
   const action = dryRun && merged.action !== 'unchanged' ? `would_${merged.action}` : merged.action;
   return {
+    ignoreFile,
     targetPath,
     action,
     addedRules: merged.addedRules,
@@ -326,14 +336,18 @@ export function copyToClipboard(text) {
   return !r.error && r.status === 0;
 }
 
-export function renderAgentOutput(report) {
+export function renderAgentOutput(report, { target = 'antigravity', ignoreFile = '.antigravityignore' } = {}) {
+  const isDsh = target === 'dsh' || low(ignoreFile) === '.dshignore';
+  const targetFlag = isDsh ? ' --target dsh' : ignoreFile !== '.antigravityignore' ? ` --ignore-file ${ignoreFile}` : '';
   const guardrails = [
     '',
     '## Agent Guardrails',
-    '- Apply or incrementally merge `.antigravityignore` via `agy-ignore "<dir>" --apply`, then verify actual rules via `agy-ignore "<dir>" --verify`.',
+    `- Apply or incrementally merge \`${ignoreFile}\` via \`agy-ignore "<dir>" --apply${targetFlag}\`, then verify actual rules via \`agy-ignore "<dir>" --verify${targetFlag}\`.`,
     '- Keep active code/deliverables readable (never ignore mixed dirs like `data/` or `models/` wholesale when they contain code); put borderline folders (`04-cleaned/`, datasets) under `# ` toggles.',
     '- Confirm with the user before running `--fix-gitignore` or `git rm --cached` on tracked files (remind key rotation if secrets were pushed).',
-    '- Never auto-edit `~/.gemini/config/config.json`; present `permissions.deny` as an optional manual copy-paste for **Settings → Security / Permissions (Strict Mode)**.',
+    isDsh
+      ? '- DeepSeek Harness note: built-in `glob`/`grep` use `--no-ignore` and sandbox policy governs directory write boundaries; pair `.dshignore` with `.gitignore`, DSH permission presets, or `agy-dart` read/sensitive guards for hard secret blocking.'
+      : '- Never auto-edit `~/.gemini/config/config.json`; present `permissions.deny` as an optional manual copy-paste for **Settings → Security / Permissions (Strict Mode)**.',
     '- Report in plain language: reassure zero files were deleted, lead with real savings, rank next steps clearly, and omit `--sync` (`.geminiignore`/`.aiexclude`) unless requested or already present.',
     '',
   ].join('\n');
@@ -361,13 +375,14 @@ function printInteractiveSummary(report, preview) {
     }
   }
 
-  console.log(`\n  [.antigravityignore 状态]`);
+  const igName = preview.ignoreFile || '.antigravityignore';
+  console.log(`\n  [${igName} 状态]`);
   if (preview.action === 'would_created') {
-    console.log(`   - 将新建 .antigravityignore（含 ${preview.addedRules.length} 条规则，${preview.addedToggles.length} 条可选开关）`);
+    console.log(`   - 将新建 ${igName}（含 ${preview.addedRules.length} 条规则，${preview.addedToggles.length} 条可选开关）`);
   } else if (preview.action === 'would_merged') {
     console.log(`   - 检测到已有文件：将无损增量追加 ${preview.addedRules.length} 条规则 / ${preview.addedToggles.length} 条可选开关`);
   } else {
-    console.log('   - 已有 .antigravityignore 已覆盖全部建议项（无需新增）');
+    console.log(`   - 已有 ${igName} 已覆盖全部建议项（无需新增）`);
   }
 
   if (sensitiveItems.length) {
@@ -393,7 +408,8 @@ function printInteractiveSummary(report, preview) {
 async function runInteractive(report, opts) {
   const root = report.overview.root;
   let currentReport = report;
-  let preview = applyAntigravityIgnore(root, currentReport, { dryRun: true });
+  const igName = opts.ignoreFile || '.antigravityignore';
+  let preview = applyAntigravityIgnore(root, currentReport, { dryRun: true, ignoreFile: igName });
   printInteractiveSummary(currentReport, preview);
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -401,8 +417,8 @@ async function runInteractive(report, opts) {
     while (true) {
       const hasGitPatches = currentReport.recommendations.gitignorePatches.some((p) => p.rulesToAdd.length > 0);
       console.log('\n请选择操作（直接回车默认执行 [1]）：');
-      console.log('  [1] 生成 / 增量更新 .antigravityignore（推荐）');
-      console.log('  [2] 更新 .antigravityignore 并同步 .geminiignore + .aiexclude');
+      console.log(`  [1] 生成 / 增量更新 ${igName}（推荐）`);
+      console.log(`  [2] 更新 ${igName} 并同步 ${opts.targets.join(' + ')}`);
       if (hasGitPatches) console.log('  [3] 顺手补齐检出的 .gitignore 漏配');
       console.log('  [4] 复制 permissions.deny 安全 JSON 到剪贴板');
       console.log('  [0] 退出');
@@ -411,10 +427,10 @@ async function runInteractive(report, opts) {
       if (ans === '0' || low(ans) === 'q') break;
 
       if (ans === '1' || ans === '2') {
-        const res = applyAntigravityIgnore(root, currentReport, { dryRun: opts.dryRun });
-        console.log(`\n✔ .antigravityignore -> ${res.action}（新增规则 ${res.addedRules.length} 条，可选开关 ${res.addedToggles.length} 条）`);
+        const res = applyAntigravityIgnore(root, currentReport, { dryRun: opts.dryRun, ignoreFile: igName });
+        console.log(`\n✔ ${igName} -> ${res.action}（新增规则 ${res.addedRules.length} 条，可选开关 ${res.addedToggles.length} 条）`);
         if (ans === '2') {
-          const syncRes = syncIgnores(root, { targets: opts.targets, backup: opts.backup, force: opts.force, dryRun: opts.dryRun });
+          const syncRes = syncIgnores(root, { source: igName, targets: opts.targets, backup: opts.backup, force: opts.force, dryRun: opts.dryRun });
           for (const item of syncRes.results) {
             console.log(`✔ ${item.target} -> ${item.action}${item.backupPath ? ` (备份: ${path.basename(item.backupPath)})` : ''}`);
           }
@@ -464,7 +480,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     return vRes.ok ? 0 : 1;
   }
 
-  const report = auditWorkspace(opts.targetDir, { top: opts.top, maxDepth: opts.maxDepth });
+  const report = auditWorkspace(opts.targetDir, { top: opts.top, maxDepth: opts.maxDepth, ignoreFile: opts.ignoreFile });
   const root = report.overview.root;
   const hasMutation = opts.apply || opts.sync || opts.fixGitignore;
   const hasExplicitAction = opts.check || hasMutation || opts.json;
@@ -478,18 +494,18 @@ export async function runCli(argv = process.argv.slice(2)) {
 
   // Non-TTY default, --check, or --json without mutation flags: read-only audit + Agent Guardrails (0 prompt tokens!)
   if (opts.check || !hasMutation) {
-    console.log(opts.format === 'json' ? JSON.stringify(report, null, 2) : renderAgentOutput(report));
+    console.log(opts.format === 'json' ? JSON.stringify(report, null, 2) : renderAgentOutput(report, { target: opts.target, ignoreFile: opts.ignoreFile }));
     await pauseIfNeeded(opts.pause);
     return 0;
   }
 
   // Deterministic mutation flags (--apply / --sync / --fix-gitignore)
-  const summary = { root, dryRun: opts.dryRun, antigravityignore: null, sync: null, gitignore: null };
+  const summary = { root, target: opts.target, ignoreFile: opts.ignoreFile, dryRun: opts.dryRun, antigravityignore: null, sync: null, gitignore: null };
   if (opts.apply || opts.sync) {
-    summary.antigravityignore = applyAntigravityIgnore(root, report, { dryRun: opts.dryRun });
+    summary.antigravityignore = applyAntigravityIgnore(root, report, { dryRun: opts.dryRun, ignoreFile: opts.ignoreFile });
   }
   if (opts.sync) {
-    const srcPath = path.join(root, '.antigravityignore');
+    const srcPath = path.join(root, opts.ignoreFile);
     if (opts.dryRun && !fs.existsSync(srcPath)) {
       summary.sync = {
         workspaceRoot: root,
@@ -505,7 +521,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         })),
       };
     } else {
-      summary.sync = syncIgnores(root, { targets: opts.targets, backup: opts.backup, force: opts.force, dryRun: opts.dryRun });
+      summary.sync = syncIgnores(root, { source: opts.ignoreFile, targets: opts.targets, backup: opts.backup, force: opts.force, dryRun: opts.dryRun });
     }
   }
   if (opts.fixGitignore) {
@@ -517,7 +533,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   } else {
     if (summary.antigravityignore) {
       const a = summary.antigravityignore;
-      console.log(`.antigravityignore: ${a.action} (+${a.addedRules.length} rules, +${a.addedToggles.length} toggles)`);
+      console.log(`${a.ignoreFile || '.antigravityignore'}: ${a.action} (+${a.addedRules.length} rules, +${a.addedToggles.length} toggles)`);
     }
     if (summary.sync) {
       for (const r of summary.sync.results) {

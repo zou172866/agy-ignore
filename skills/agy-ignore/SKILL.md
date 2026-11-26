@@ -9,9 +9,9 @@ Build rules from real metrics, never static templates. Read [guardrails.md](./re
 
 ## Triggers
 
-- **Default** (`Ignore Guard` / `set up AI ignore` / `禁区助手` / `禁区管家` / `建立禁区` / `屏蔽垃圾` / `/agy-ignore`): audit → write/merge `.antigravityignore` → `--verify` → plain-language summary. Run directly.
+- **Default** (`Ignore Guard` / `set up AI ignore` / `禁区助手` / `禁区管家` / `建立禁区` / `屏蔽垃圾` / `/agy-ignore`): audit → write/merge `.antigravityignore` (DSH: `.dshignore`) → `--verify` → summary.
 - **Read-only** (`audit only` / `check` / `只看` / `体检`): Step 1 only; no edits.
-- **Sync** (`sync` / `全同步`): default + Step 4 sync to `.geminiignore` & `.aiexclude`.
+- **Sync** (`sync` / `全同步`): default + Step 4 sync (`.geminiignore`, `.aiexclude`, `.dshignore`).
 
 ## Invariants
 
@@ -29,8 +29,8 @@ Build rules from real metrics, never static templates. Read [guardrails.md](./re
    node ./scripts/audit_workspace.mjs "<workspace_dir>" --format md --top 12
    ```
    Skim root `.gitignore` for runtime dirs while keeping active scripts readable.
-2. **Layer 3 (`.antigravityignore`)**: write/merge 5 sections—bloat/state, deps/locks/caches, archives/weights/media, env/keys (`!.env.example`), `# ` toggles.
-3. **Verify**: check written `.antigravityignore` and fix any `WARN`:
+2. **Layer 3 (`.antigravityignore` / `.dshignore`)**: write/merge 5 sections—bloat/state, deps/locks/caches, archives/weights/media, env/keys (`!.env.example`), `# ` toggles.
+3. **Verify**: check written file & fix `WARN` (DSH: `--ignore-file .dshignore`):
    ```
    node ./scripts/audit_workspace.mjs "<workspace_dir>" --verify
    ```

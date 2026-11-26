@@ -32,7 +32,8 @@ const SQLITE_EXTS = 'sqlite sqlite-wal sqlite-shm sqlite3 sqlite3-wal sqlite3-sh
 const PY_M = 'pyproject.toml requirements.txt setup.py';
 const JAVA_M = 'pom.xml build.gradle build.gradle.kts';
 
-const IGNORE_FILES = S('.gitignore .antigravityignore .geminiignore .aiexclude .cursorignore .dockerignore');
+const DEF_IG = '.antigravityignore';
+const IGNORE_FILES = S(`.gitignore ${DEF_IG} .dshignore .geminiignore .aiexclude .cursorignore .dockerignore`);
 const LOCKFILES = S(`${JS_LOCKS} bun.lockb bun.lock cargo.lock uv.lock poetry.lock pipfile.lock composer.lock gemfile.lock flake.lock`);
 const ARCHIVE_EXTS = E(`${ARCH_BASE} bz2 xz gz dmg iso whl`);
 const MEDIA_EXTS = E(`${MEDIA_BASE} webm flac ogg`);
@@ -78,7 +79,7 @@ export const formatMB = (b) => +(b / 1048576).toFixed(2);
 const pct = (a, b) => (b > 0 ? +((a / b) * 100).toFixed(1) : 0);
 
 export function parseArgs(argv) {
-  const o = { targetDir: '.', format: 'md', top: 12, maxDepth: 6, verify: false, ignoreFile: '.antigravityignore', help: false };
+  const o = { targetDir: '.', format: 'md', top: 12, maxDepth: 6, verify: false, ignoreFile: DEF_IG, help: false };
   let pos = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], eq = a.indexOf('='), f = eq < 0 ? a : a.slice(0, eq);
@@ -232,7 +233,8 @@ function countRules(p) {
   catch { return 0; }
 }
 
-export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {}) {
+export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6, ignoreFile } = {}) {
+  const ig = (typeof ignoreFile === 'string' && ignoreFile.trim()) || DEF_IG;
   if (!Number.isInteger(top) || top < 1 || !Number.isInteger(maxDepth) || maxDepth < 1) fail('Invalid top/maxDepth');
   const root = path.resolve(targetDir);
   let rootSt;
@@ -515,10 +517,10 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
     ...[...bSet].map((p) => `# ${escPat(p)}/`),
     ...bigData.filter((p) => !isNested(p, activeSet) && !isNested(p, bSet)).map((p) => `# ${escPat(p)}`),
   ])];
-  const hasRoot = ignores.some((f) => f.scope === 'root' && low(f.name) === '.antigravityignore');
+  const hasRoot = ignores.some((f) => f.scope === 'root' && low(f.name) === low(ig));
   const antigravityIgnoreDraft = [
-    '# .antigravityignore Draft',
-    ...(hasRoot ? ['# NOTE: Existing .antigravityignore — MERGE incrementally!'] : []),
+    `# ${ig} Draft`,
+    ...(hasRoot ? [`# NOTE: Existing ${ig} — MERGE incrementally!`] : []),
     '', '# 1. Workspace bloat', ...(uSpec.length ? uSpec : ['# (None)']),
     '', '# 2. Deps, lockfiles & caches', ...sRules,
     '', '# 3. Archives, weights & media (keeps *.png, *.svg, *.json, *.md)', ...mRules,
@@ -532,6 +534,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
       ...counts, maxDepth, permissionErrorSamples: permSamples, gitAvailable,
       skippedDeepGitRepos: [...deepRepos].sort(), detectedStacks,
       existingIgnoreFiles: ignores.sort((a, b) => cmp(a.path, b.path)),
+      primaryIgnoreFile: ig,
     },
     topBySize, topByFileCount,
     lockfiles: locks.sort(bySize), archiveFiles: archives.sort(bySize).slice(0, 30),
@@ -546,7 +549,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
   };
 }
 
-export function verifyIgnoreFile(targetDir = '.', { ignoreFile = '.antigravityignore', maxFiles = 200000 } = {}) {
+export function verifyIgnoreFile(targetDir = '.', { ignoreFile = DEF_IG, maxFiles = 200000 } = {}) {
   const root = path.resolve(targetDir);
   const igPath = path.resolve(root, ignoreFile);
   if (!fs.existsSync(igPath) || !fs.statSync(igPath).isFile()) fail(`Ignore file not found: ${igPath}`);
@@ -713,7 +716,7 @@ export function renderMarkdown({ overview: o, topBySize, topByFileCount, sensiti
       `- **Filtered:** ${f(sv.estimatedFilteredFiles)}/${f(o.totalFiles)} (**${sv.fileReductionPct}%**), ` +
       `${mb(sv.estimatedFilteredMB)}/${mb(o.totalMB)} MB (**${sv.sizeReductionPct}%**) | **Left:** ${f(sv.remainingFiles)} (${mb(sv.remainingMB)} MB)`,
     ]],
-    ['7. `.antigravityignore` Draft', fence('gitignore', [rec.antigravityIgnoreDraft.trimEnd()])],
+    [`7. \`${o.primaryIgnoreFile || DEF_IG}\` Draft`, fence('gitignore', [rec.antigravityIgnoreDraft.trimEnd()])],
     ['8. `.gitignore` Patches', patches],
     ['9. Hard Security Wall Snippet (`permissions.deny`)', [
       '> Manual only (never auto-edit `~/.gemini/config/config.json`).',
@@ -733,16 +736,10 @@ if (process.argv[1] && realUrl(fileURLToPath(import.meta.url)) === realUrl(proce
   try {
     const o = parseArgs(process.argv.slice(2));
     if (o.help) console.log(getUsageText());
-    else if (o.verify) {
-      const res = verifyIgnoreFile(o.targetDir, o);
-      console.log(o.format === 'json' ? JSON.stringify(res, null, 2) : renderVerifyMarkdown(res));
-      if (!res.ok) process.exitCode = 1;
-    } else {
-      const report = auditWorkspace(o.targetDir, o);
-      console.log(o.format === 'json' ? JSON.stringify(report, null, 2) : renderMarkdown(report));
+    else {
+      const r = o.verify ? verifyIgnoreFile(o.targetDir, o) : auditWorkspace(o.targetDir, o);
+      console.log(o.format === 'json' ? JSON.stringify(r, null, 2) : (o.verify ? renderVerifyMarkdown : renderMarkdown)(r));
+      if (o.verify && !r.ok) process.exitCode = 1;
     }
-  } catch (e) {
-    console.error(`Error: ${e.message}`);
-    process.exitCode = 1;
-  }
+  } catch (e) { console.error(`Error: ${e.message}`); process.exitCode = 1; }
 }

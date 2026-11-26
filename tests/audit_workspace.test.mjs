@@ -947,3 +947,48 @@ test('v1.2.0 detects AI model weights, runtime state dirs, SQLite WAL, DPAPI key
     fs.rmSync(ws, { recursive: true, force: true });
   }
 });
+
+test('v1.2.1 detects .remotion/ & pretrained_models/*_weights* and auto-triages public CA .pem & ML hyperparam config.json', () => {
+  const ws = makeTempDir('agy-ignore-v121-');
+  try {
+    runGit(ws, ['init']);
+    writeFileDeep(ws, '.gitignore', 'config.json\n');
+
+    // Public-only CA cert -> NOT flagged; cert+key bundle & private key -> FLAGGED
+    writeFileDeep(ws, 'certs/ca.pem', '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n');
+    writeFileDeep(ws, 'certs/bundle.pem', '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n');
+    writeFileDeep(ws, 'certs/srv.pem', '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n');
+
+    // ML hyperparam config (with NLP bos_token_id/pad_token_id) -> NOT flagged
+    writeFileDeep(ws, 'pretrained_models/bert/config.json', JSON.stringify({
+      architectures: ['BertModel'], hidden_size: 768, bos_token_id: 101, eos_token_id: 102, pad_token_id: 0,
+    }));
+    writeFileDeep(ws, 'pretrained_models/bert/model.pth', Buffer.alloc(1100 * 1024, 0x01));
+    writeFileDeep(ws, 'SoVITS_weights_v5turbo/s2.pth', Buffer.alloc(1100 * 1024, 0x01));
+    // ML config with real secret key -> MUST be flagged
+    writeFileDeep(ws, 'ml_leak/config.json', JSON.stringify({
+      architectures: ['BertModel'], hidden_size: 768, auth: { auth_token: 'secret' },
+    }));
+    // Regular gitignored app config -> MUST be flagged
+    writeFileDeep(ws, 'app/config.json', JSON.stringify({ host: '127.0.0.1', port: 8080 }));
+    // Remotion headless browser cache
+    writeFileDeep(ws, '.remotion/chrome-headless-shell/chrome.exe', Buffer.alloc(2048, 0x02));
+
+    const rep = auditWorkspace(ws, { top: 15, maxDepth: 6 });
+    const sensPaths = new Set(rep.sensitiveItems.map((x) => x.path));
+    assert.equal(sensPaths.has('certs/ca.pem'), false);
+    assert.equal(sensPaths.has('certs/bundle.pem'), true);
+    assert.equal(sensPaths.has('certs/srv.pem'), true);
+    assert.equal(sensPaths.has('pretrained_models/bert/config.json'), false);
+    assert.equal(sensPaths.has('ml_leak/config.json'), true);
+    assert.equal(sensPaths.has('app/config.json'), true);
+
+    const draftLines = rep.recommendations.antigravityIgnoreDraft.split('\n').map((l) => l.trim());
+    assert.ok(draftLines.includes('.remotion/'));
+    assert.ok(draftLines.includes('/pretrained_models/'));
+    assert.ok(draftLines.includes('/SoVITS_weights_v5turbo/'));
+    assert.match(fs.readFileSync(path.join(REPO_ROOT, 'skills', 'agy-ignore', 'SKILL.md'), 'utf8'), /禁区助手/);
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});

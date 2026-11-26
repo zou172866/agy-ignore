@@ -4,11 +4,11 @@
 
 [![Clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zou172866/repo-traffic-archive/main/badges/agy-ignore.json)](https://github.com/zou172866/repo-traffic-archive)
 
-**禁区管家（Ignore Guard）——帮 AI 躲开垃圾文件和密码，省额度、不犯傻、不泄密。**
+**禁区助手 / 禁区管家（Ignore Guard）——帮 AI 躲开垃圾文件和密码，省额度、不犯傻、不泄密。**
 
 面向 Google Antigravity、Gemini CLI 与 Gemini Code Assist 的“先量化体检、再三层防噪”小工具与技能。
 
-零外部依赖 · Node.js >= 18 · 跨平台 · 超轻 ~30 Token Skill 名片（装完直接说 **「禁区管家帮我建立一下禁区」**）· 同时提供彻底 0 提示词占用的全局命令 `agy-ignore` 与 Windows 拖拽/右键快捷工具。
+零外部依赖 · Node.js >= 18 · 跨平台 · 超轻 ~30 Token Skill 名片（装完直接说 **「禁区助手帮我建立一下禁区」** 或 **「禁区管家帮我建立一下禁区」**）· 同时提供彻底 0 提示词占用的全局命令 `agy-ignore` 与 Windows 拖拽/右键快捷工具。
 
 ---
 
@@ -51,7 +51,7 @@ node skills/agy-ignore/scripts/audit_workspace.mjs /path/to/workspace --verify
 `audit_workspace.mjs` 在安全遍历（不跟随目录软链接、跳过 `.git/` 内部对象、优雅跳过权限受限目录）后输出：
 - **工作区总览**：总文件数、总体积（MB）、识别的技术栈、现有 ignore 文件清单（`.gitignore` / `.antigravityignore` / `.geminiignore` / `.aiexclude` / `.cursorignore`）。
 - **体积 Top N & 文件数 Top N 目录榜（1～2 级聚合）**：自动标注噪音类型（`browser_profile`、`dependencies`、`build_cache`、`archives_releases`、`corpus_or_intermediate`、`model_media_assets`、`lockfiles`），并对含活跃代码的混合目录（如 `data/`、ORM `models/`、前端 `state/`）做防误伤保护。
-- **敏感文件、权重与配置扫描**：检测 `.env` / `.env.*`（自动放行 `.env.example` / `.env.sample` / `.env.template`）、`*.pem`、`*.key`、`*.dpapi`（按实检动态追加）、`secrets/`、浏览器 profile、SQLite WAL/SHM 伴生文件、AI 模型权重（`*.ckpt`/`*.pth`/`*.onnx`/`*.safetensors`/`*.gguf`）与本地 `config.json`。
+- **敏感文件、权重与配置扫描**：检测 `.env` / `.env.*`（自动放行 `.env.example` / `.env.sample` / `.env.template`）、`*.pem`（自动放行仅含 `BEGIN CERTIFICATE` 的公开 CA 证书，仍严拦私钥与混合包）、`*.key`、`*.dpapi`（按实检动态追加）、`secrets/`、浏览器 profile、`.remotion/` 缓存、SQLite WAL/SHM 伴生文件、AI 模型权重目录（`pretrained_models/`、`*_weights*` 及 `*.ckpt`/`*.pth`/`*.onnx`/`*.safetensors`/`*.gguf`）与本地 `config.json`（自动跳过零密钥键的深度学习超参配置，避免污染 `permissions.deny`）。
 - **多仓库 `.gitignore` 漏配与预防加固巡检（深度 <= 2）**：对每个 Git 仓库调用 `git check-ignore --no-index` 与 `git ls-files`，明确区分**真实漏配（立即修复）**与**预防性加固（0 漏配时的可选 `.env.*`/`*.pem`/`*.key` 建议）**。
 - **通俗汇报与 `--verify` 隔离验真**：输出 5 段 `.antigravityignore` 草稿、隔离实测真实过滤率与模板/追踪源码零误伤校验，以及面向普通用户的分级推荐（先定心丸、不甩术语菜单）。
 

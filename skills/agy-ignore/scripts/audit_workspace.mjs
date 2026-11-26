@@ -44,7 +44,7 @@ const KEY_EXTS = E('pem key p12 pfx jks keystore kdbx dpapi');
 const KEY_NAMES = S('id_rsa id_ed25519 id_ecdsa id_dsa');
 const SECRET_JSONS = S('credentials.json secrets.json settings.local.json');
 const DEP_DIRS = S('node_modules .venv venv .tox .pnpm-store .yarn bower_components pods .gradle');
-const CACHE_DIRS = S('dist build out .next .nuxt .svelte-kit .turbo .cache .parcel-cache .vite coverage __pycache__ .pytest_cache .mypy_cache .ruff_cache .eslintcache storybook-static playwright-report test-results .vs');
+const CACHE_DIRS = S('dist build out .next .nuxt .svelte-kit .turbo .cache .parcel-cache .vite .remotion coverage __pycache__ .pytest_cache .mypy_cache .ruff_cache .eslintcache storybook-static playwright-report test-results .vs');
 const MARKERS = S(`package.json ${PY_M} cargo.toml go.mod ${JAVA_M}`);
 const SCOPED = S('bin env');
 const GENERIC_DIRS = new Set([...DEP_DIRS, ...CACHE_DIRS, 'target', 'vendor', 'obj']);
@@ -54,7 +54,7 @@ const STAT_KEYS = W('files bytes codeFiles docDataFiles archiveFiles mediaFiles 
 const DOTNET_RE = /\.(csproj|fsproj|vbproj|sln)$/;
 const BROWSER_RE = /^(\.?(edge|chrome|playwright|puppeteer|browser|selenium)[-_]?profile|\.playwright.*|user data)$/i;
 const ARCHIVE_DIR_RE = /(^|[-_.])(releases?|archives?|backups?|snapshots?|dist-packages)$/i;
-const ASSET_DIR_RE = /^(models?|model[-_]?weights?|weights?|checkpoints?|voices?|voice[-_]?packs?|embeddings?)$/i;
+const ASSET_DIR_RE = /^(models?|pretrained[-_]?models?|.*[-_]?weights?([-_][^/]*)?|checkpoints?|voices?|voice[-_]?packs?|embeddings?)$/i;
 const RUNTIME_DATA_RE = /^(state|runtime|.*[-_]data)$/i;
 const RUNTIME_FILE_RE = /(token|\.pid$|\.log$|\.jsonl$)/i;
 const INTERMEDIATE_RE = /^((0[1-3][-_]?)?(raw([-_]?data)?|normalized|chunks?.*)|.*[-_](chunks?.*|tmp)|\.?tmp|temp|intermediate|staging|outputs?|exports?|artifacts|traces|logs)$/i;
@@ -112,6 +112,35 @@ export const getUsageText = () =>
 const hasBrowserFp = (kids) => BROWSER_FPS.some(([a, b]) => kids.has(a) && kids.has(b));
 const isPyVenv = (l, kids) => l === 'env' && hasAny(kids, 'pyvenv.cfg site-packages');
 const hit = (category, reason, borderline = false, sensitive = false) => ({ category, borderline, sensitive, reason });
+
+const CA_PEM_RE = /(?:^|[-_.])(?:ca|cacert|ca[-_]?(?:bundle|certs?)|(?:root|trust)[-_]?ca)\.pem$/i;
+const SEC_K_RE = /(secret|token|passw|(?:api|private|access|auth)[-_]?key|credential|cookie|dsn|webhook)/i;
+const NLP_K_RE = /(?:^|[-_])(?:bos|eos|pad|unk|cls|sep|mask|start|stop|special|decoder_start)[-_]?tokens?(?:[-_]?ids?)?$|(?:^|[-_])token[-_]?ids?$/i;
+const ML_K = S('architectures model_type hidden_size num_hidden_layers vocab_size batch_size learning_rate num_gpus n_fft hop_size win_size hop_length sampling_rate hr_sampling_rate upsample_rates resblock segment_size transformers_version s2_ckpt_dir save_weight_dir');
+
+function isPublicCaPem(n, abs, sz) {
+  if (!CA_PEM_RE.test(n) || !abs || sz <= 0 || sz > 524288) return false;
+  try {
+    const t = fs.readFileSync(abs, 'utf8').trimStart();
+    return /^-----BEGIN (?:TRUSTED |X509 )?CERTIFICATE-----/.test(t) && !/PRIVATE KEY-----/.test(t);
+  } catch { return false; }
+}
+function hasSecKey(v, d = 0) {
+  if (!v || typeof v !== 'object' || d > 5) return false;
+  return Array.isArray(v) ? v.some((x) => hasSecKey(x, d + 1)) : Object.entries(v).some(([k, x]) => (SEC_K_RE.test(k) && !NLP_K_RE.test(k)) || hasSecKey(x, d + 1));
+}
+function isMlConfig(abs, sz) {
+  if (!abs || sz <= 0 || sz > 262144) return false;
+  try {
+    const j = JSON.parse(fs.readFileSync(abs, 'utf8'));
+    if (j?.constructor !== Object || hasSecKey(j)) return false;
+    const ks = new Set(Object.keys(j).map(low));
+    for (const s of ['train', 'model', 'data']) if (j[s]?.constructor === Object) for (const k of Object.keys(j[s])) ks.add(low(k));
+    let n = 0;
+    for (const k of ks) if (ML_K.has(k) && ++n >= 2) return true;
+    return false;
+  } catch { return false; }
+}
 
 export function isSensitiveFile(fileName, sibs = EMPTY) {
   const l = low(fileName);
@@ -301,8 +330,8 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
         }
         if (/\.(jsonl|parquet|csv)$/.test(ext) && sz >= 1048576) bigData.push(rel);
         const s = isSensitiveFile(name, kids);
-        if (s) addSens(rel, false, s.category, s.reason, sz);
-        else if (l === 'config.json') pendingCfgs.push([rel, sz]);
+        if (s && !(s.category === KEY && ext === '.pem' && isPublicCaPem(name, abs, sz))) addSens(rel, false, s.category, s.reason, sz);
+        else if (!s && l === 'config.json') pendingCfgs.push([rel, sz, abs]);
       }
     }
     return acc;
@@ -351,9 +380,9 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
         addCand(r.path, true, r.category, r.category === BROWSER || r.category === SECRETS);
       }
     }
-    for (const [ws, sz] of pendingCfgs) {
+    for (const [ws, sz, abs] of pendingCfgs) {
       const loc = locate(ws);
-      if (loc) loc[0].cfgs.push([loc[1], ws, sz]);
+      if (loc) loc[0].cfgs.push([loc[1], ws, sz, abs]);
     }
 
     for (const repo of [...repos].sort(cmp)) {
@@ -366,7 +395,7 @@ export function auditWorkspace(targetDir = '.', { top = 12, maxDepth = 6 } = {})
       if (cfgs.length) {
         const res = checkIgnore(repoAbs, cfgs.map((c) => c[0]));
         if (res.error) { pushRepo(0, 0, res.error); continue; }
-        for (const [p, ws, sz] of cfgs) if (res.ignored.has(p)) {
+        for (const [p, ws, sz, abs] of cfgs) if (res.ignored.has(p) && !isMlConfig(abs, sz)) {
           addSens(ws, false, CFG, 'Gitignored config', sz);
           cands.set(p, { p, isDir: false, category: CFG, highRisk: true });
         }
